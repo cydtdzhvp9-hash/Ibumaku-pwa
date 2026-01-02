@@ -65,7 +65,7 @@ export default function PlayPage() {
         const map = new google.maps.Map(mapEl.current, {
           center,
           zoom: 13,
-          mapId: 'DEMO_MAP_ID',
+          mapId: import.meta.env.VITE_GOOGLE_MAP_ID as string,
         });
         mapRef.current = map;
       } catch (e: any) {

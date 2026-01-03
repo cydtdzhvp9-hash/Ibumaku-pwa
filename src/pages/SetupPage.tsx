@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loadGoogleMaps } from '../map/loadGoogleMaps';
+import { attachMap, parkMap } from '../map/mapSingleton';
 import type { GameConfig, LatLng, Spot } from '../types';
 import { getJudgeTargetSpots, saveGame } from '../db/repo';
 import { useToast } from '../hooks/useToast';
@@ -27,6 +27,7 @@ export default function SetupPage() {
 
   const mapEl = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
+  const clickListenerRef = useRef<google.maps.MapsEventListener | null>(null);
   const startMarkerRef = useRef<any>(null);
   const goalMarkerRef = useRef<any>(null);
 
@@ -39,21 +40,27 @@ export default function SetupPage() {
     })();
   }, []);
 
-  useEffect(() => {
+    useEffect(() => {
     (async () => {
       try {
-        await loadGoogleMaps();
         if (!mapEl.current) return;
+
         const center = { lat: 31.2, lng: 130.5 };
-        const map = new google.maps.Map(mapEl.current, {
+        const mapId = (import.meta.env.VITE_GOOGLE_MAP_ID as string) || undefined;
+
+        const map = await attachMap(mapEl.current, {
           center,
           zoom: 11,
-          mapId: 'DEMO_MAP_ID',
+          ...(mapId ? { mapId } : {}),
         });
         mapRef.current = map;
 
         // click to set start then goal (toggle by state)
-        map.addListener('click', (e: google.maps.MapMouseEvent) => {
+        if (clickListenerRef.current) {
+          try { clickListenerRef.current.remove(); } catch { /* noop */ }
+          clickListenerRef.current = null;
+        }
+        clickListenerRef.current = map.addListener('click', (e: google.maps.MapMouseEvent) => {
           if (!e.latLng) return;
           const ll = { lat: e.latLng.lat(), lng: e.latLng.lng() };
           setConfig((c) => {
@@ -72,7 +79,17 @@ export default function SetupPage() {
         show(e?.message ?? String(e), 6000);
       }
     })();
+
+    return () => {
+      if (clickListenerRef.current) {
+        try { clickListenerRef.current.remove(); } catch { /* noop */ }
+        clickListenerRef.current = null;
+      }
+      // Keep the single map instance alive across routes.
+      parkMap();
+    };
   }, [show]);
+
 
   useEffect(() => {
     // update markers
@@ -116,6 +133,21 @@ export default function SetupPage() {
     up('start', config.start);
     up('goal', config.goal);
   }, [config.start, config.goal]);
+
+  // cleanup start/goal markers on unmount (map is shared across routes)
+  useEffect(() => {
+    return () => {
+      if (startMarkerRef.current) {
+        try { startMarkerRef.current.map = null; } catch { /* noop */ }
+        startMarkerRef.current = null;
+      }
+      if (goalMarkerRef.current) {
+        try { goalMarkerRef.current.map = null; } catch { /* noop */ }
+        goalMarkerRef.current = null;
+      }
+    };
+  }, []);
+
 
   const onUseCurrentForStartGoal = async () => {
     try {

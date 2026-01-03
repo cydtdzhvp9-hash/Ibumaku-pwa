@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loadGoogleMaps } from '../map/loadGoogleMaps';
+import { attachMap, parkMap } from '../map/mapSingleton';
 import { getJudgeTargetSpots, getStationsByOrder, loadGame, saveGame } from '../db/repo';
 import type { Spot, Station } from '../types';
 import { useGameStore } from '../store/gameStore';
@@ -108,19 +108,19 @@ export default function PlayPage() {
     );
   };
 
-  useEffect(() => {
+    useEffect(() => {
     (async () => {
       try {
-        await loadGoogleMaps();
         if (!mapEl.current) return;
 
         const p = progress;
         const center = p?.config.start ?? { lat: 31.2, lng: 130.5 };
+        const mapId = (import.meta.env.VITE_GOOGLE_MAP_ID as string) || undefined;
 
-        const map = new google.maps.Map(mapEl.current, {
+        const map = await attachMap(mapEl.current, {
           center,
           zoom: 13,
-          mapId: import.meta.env.VITE_GOOGLE_MAP_ID as string,
+          ...(mapId ? { mapId } : {}),
           gestureHandling: 'greedy', // 1本指で移動
         });
         mapRef.current = map;
@@ -139,8 +139,25 @@ export default function PlayPage() {
         try { navigator.geolocation.clearWatch(geoWatchIdRef.current); } catch { /* noop */ }
         geoWatchIdRef.current = null;
       }
+      // cleanup overlays because map is shared across routes
+      try { userMarkerRef.current?.setMap(null); } catch { /* noop */ }
+      userMarkerRef.current = null;
+
+      try { clustererRef.current?.clearMarkers(); } catch { /* noop */ }
+      clustererRef.current = null;
+
+      for (const m of markersRef.current) {
+        try { m.map = null; } catch { /* noop */ }
+      }
+      markersRef.current = [];
+
+      try { infoWindowRef.current?.close(); } catch { /* noop */ }
+
+      // Keep the single map instance alive across routes.
+      parkMap();
     };
   }, [show, progress]);
+
 
   // render markers when map/spots/progress ready
   useEffect(() => {

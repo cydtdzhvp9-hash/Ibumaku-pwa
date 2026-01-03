@@ -13,21 +13,30 @@ export default function HomePage() {
   useEffect(() => {
     (async () => {
       const g = await loadGame();
-      setHasGame(!!g);
-      if (g) setProgress(g);
+      // 「再開」は“ゲーム途中（endedAtMsが未設定）”のみ有効。
+      const inProgress = !!g && !g.endedAtMs;
+      setHasGame(inProgress);
+      if (inProgress) setProgress(g);
     })();
   }, [setProgress]);
 
   const onResume = async () => {
     const g = await loadGame();
     if (!g) return show('途中データがありません。');
+    // ゴール/タイムアップ済みは再開不可（リザルトへ誘導）
+    if (g.endedAtMs) {
+      setProgress(g);
+      nav('/result');
+      return;
+    }
     setProgress(g);
     nav('/play');
   };
 
   const onNew = async () => {
     const g = await loadGame();
-    if (g) {
+    // 「途中データ」がある場合のみ確認する（終了済みは“途中”ではない）
+    if (g && !g.endedAtMs) {
       const ok = window.confirm('ゲーム途中のデータがあります。新規を開始すると途中データは消えます。よろしいですか？');
       if (!ok) return;
       await clearGame();

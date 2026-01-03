@@ -314,7 +314,8 @@ export default function PlayPage() {
       map,
       markers: spotMarkers,
       renderer: {
-        render: ({ position }) => {
+        // MarkerClusterer types can be loose depending on version; annotate to avoid implicit any.
+        render: ({ position }: { position: google.maps.LatLngLiteral }) => {
           return new google.maps.Marker({
             position,
             icon: {

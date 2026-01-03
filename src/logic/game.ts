@@ -48,7 +48,8 @@ export function startNewGame(resolvedConfig: GameConfig & { start: LatLng; goal:
     reachedCpIds: [],
     visitedSpotIds: [],
     visitedStationEvents: [],
-    usedStationIds: [],
+    scoredStationIds: [],
+    usedStationIds: [], // backward compatible mirror of scoredStationIds
     score: 0,
     penalty: 0,
   };
@@ -86,7 +87,6 @@ export function selectCpSpotsMVP(allJudgeSpots: Spot[], config: GameConfig & { s
 }
 
 export function checkInSpotOrCp(progress: GameProgress, loc: LatLng, accuracy: number, judgeSpots: Spot[]): CheckInResult {
-  if (progress.endedAtMs) return { ok:false, code:'GAME_ENDED', message:'このゲームは終了しています。リザルトを確認してください。' };
   if (accuracy > MAX_ACCURACY_M) return { ok:false, code:'ACCURACY_TOO_BAD', message:`accuracyが大きすぎます（${Math.round(accuracy)}m）。100m以内になるまで待ってください。` };
 
   const cand = pickCandidateSpotWithinRadius(judgeSpots, loc);
@@ -136,7 +136,6 @@ function pickStationWithinRadius(stations: Station[], loc: LatLng): { st: Statio
 
 export function jrBoard(progress: GameProgress, loc: LatLng, accuracy: number, stations: Station[]): CheckInResult {
   const t = nowMs();
-  if (progress.endedAtMs) return { ok:false, code:'GAME_ENDED', message:'このゲームは終了しています。リザルトを確認してください。' };
   if (accuracy > MAX_ACCURACY_M) return { ok:false, code:'ACCURACY_TOO_BAD', message:`accuracyが大きすぎます（${Math.round(accuracy)}m）。100m以内になるまで待ってください。` };
   if (!progress.config.jrEnabled) return { ok:false, code:'JR_DISABLED', message:'JRはOFFです。' };
   if (progress.cooldownUntilMs && t < progress.cooldownUntilMs) {
@@ -149,15 +148,10 @@ export function jrBoard(progress: GameProgress, loc: LatLng, accuracy: number, s
   if (!cand) return { ok:false, code:'NO_STATION', message:'50m以内に駅が見つかりません。' };
 
   const stationId = cand.st.stationId;
-  const used = new Set(progress.usedStationIds);
-  if (used.has(stationId)) return { ok:false, code:'STATION_ALREADY_USED', message:'この駅は既に乗車/降車に使用されています（同一駅の乗降は禁止）。' };
-
-  used.add(stationId);
 
   const next: GameProgress = {
     ...progress,
     boardedStationId: stationId,
-    usedStationIds: Array.from(used),
     visitedStationEvents: [...progress.visitedStationEvents, { type:'BOARD', stationId, atMs: t }],
     cooldownUntilMs: t + JR_COOLDOWN_SEC * 1000,
     lastLocation: { lat: loc.lat, lng: loc.lng, accuracy, atMs: t }
@@ -180,7 +174,6 @@ function stationsBetween(board: Station, alight: Station, byOrder: Map<number, S
 
 export function jrAlight(progress: GameProgress, loc: LatLng, accuracy: number, stations: Station[]): CheckInResult {
   const t = nowMs();
-  if (progress.endedAtMs) return { ok:false, code:'GAME_ENDED', message:'このゲームは終了しています。リザルトを確認してください。' };
   if (accuracy > MAX_ACCURACY_M) return { ok:false, code:'ACCURACY_TOO_BAD', message:`accuracyが大きすぎます（${Math.round(accuracy)}m）。100m以内になるまで待ってください。` };
   if (!progress.config.jrEnabled) return { ok:false, code:'JR_DISABLED', message:'JRはOFFです。' };
   if (progress.cooldownUntilMs && t < progress.cooldownUntilMs) {
@@ -196,42 +189,56 @@ export function jrAlight(progress: GameProgress, loc: LatLng, accuracy: number, 
   const alightId = cand.st.stationId;
   if (alightId === boardedId) return { ok:false, code:'SAME_STATION', message:'同一駅での乗車・降車はできません。' };
 
-  const used = new Set(progress.usedStationIds);
-  if (used.has(alightId)) return { ok:false, code:'STATION_ALREADY_USED', message:'この駅は既に乗車/降車に使用されています（同一駅の乗降は禁止）。' };
-
   const byId = new Map(stations.map(s=>[s.stationId,s] as const));
   const byOrder = new Map(stations.map(s=>[s.orderIndex,s] as const));
   const board = byId.get(boardedId);
   if (!board) return { ok:false, code:'BOARD_STATION_UNKNOWN', message:'乗車駅が駅マスタに見つかりません。' };
 
-  used.add(alightId);
-
-  // scoring: board + alight + pass stations
+  // scoring: each station is scored at most once per game (both directions included)
   const pass = stationsBetween(board, cand.st, byOrder);
   const scoreOf = (st: Station) => (isFinite(st.score ?? 0) ? (st.score ?? 0) : 0);
-  const jrScore = scoreOf(board) + scoreOf(cand.st) + pass.reduce((s,st)=>s+scoreOf(st),0);
+
+  // Backward compatibility:
+  // - New games store scored ids in `scoredStationIds`.
+  // - Older saved data might have only `usedStationIds`.
+  //   However, older versions added the boarded station into usedStationIds at BOARD time,
+  //   so if currently boarded, we must NOT treat it as already scored yet.
+  const scored = new Set(progress.scoredStationIds ?? progress.usedStationIds ?? []);
+  if (progress.boardedStationId) scored.delete(progress.boardedStationId);
+
+  const segmentStations: Station[] = [board, ...pass, cand.st];
+  const newlyScoredIds: string[] = [];
+  let jrScore = 0;
+  for (const st of segmentStations) {
+    if (scored.has(st.stationId)) continue;
+    jrScore += scoreOf(st);
+    scored.add(st.stationId);
+    newlyScoredIds.push(st.stationId);
+  }
 
   const next: GameProgress = {
     ...progress,
     score: progress.score + jrScore,
     boardedStationId: undefined,
-    usedStationIds: Array.from(used),
+    scoredStationIds: Array.from(scored),
+    usedStationIds: Array.from(scored), // mirror
     visitedStationEvents: [...progress.visitedStationEvents, { type:'ALIGHT', stationId: alightId, atMs: t }],
     cooldownUntilMs: t + JR_COOLDOWN_SEC * 1000,
     lastLocation: { lat: loc.lat, lng: loc.lng, accuracy, atMs: t }
   };
 
   const passNames = pass.map(s=>s.name).join('、');
+  const skipped = segmentStations.length - newlyScoredIds.length;
+  const bonusNote = skipped > 0 ? `（加算済み駅${skipped}件は0点）` : '';
   const msg = pass.length
-    ? `降車チェックイン：${cand.st.name}（通過：${passNames}、+${jrScore}）`
-    : `降車チェックイン：${cand.st.name}（+${jrScore}）`;
+    ? `降車チェックイン：${cand.st.name}（通過：${passNames}、+${jrScore}）${bonusNote}`
+    : `降車チェックイン：${cand.st.name}（+${jrScore}）${bonusNote}`;
 
   return { ok:true, kind:'JR_ALIGHT', message: msg, progress: next };
 }
 
 export function goalCheckIn(progress: GameProgress, loc: LatLng, accuracy: number): CheckInResult {
   const t = nowMs();
-  if (progress.endedAtMs) return { ok:false, code:'GAME_ENDED', message:'このゲームは終了しています。リザルトを確認してください。' };
   if (accuracy > MAX_ACCURACY_M) return { ok:false, code:'ACCURACY_TOO_BAD', message:`accuracyが大きすぎます（${Math.round(accuracy)}m）。100m以内になるまで待ってください。` };
   // check radius to goal
   const d = haversineMeters(loc, progress.config.goal);

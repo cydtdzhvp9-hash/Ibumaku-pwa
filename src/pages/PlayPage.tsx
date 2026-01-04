@@ -908,7 +908,7 @@ export default function PlayPage() {
       map,
       markers: spotMarkers,
       renderer: {
-        render: ({ position }) => {
+        render: ({ position }: { position: google.maps.LatLngLiteral }) => {
           return new google.maps.Marker({
             position,
             icon: {

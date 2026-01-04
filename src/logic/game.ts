@@ -48,8 +48,8 @@ export function startNewGame(resolvedConfig: GameConfig & { start: LatLng; goal:
     reachedCpIds: [],
     visitedSpotIds: [],
     visitedStationEvents: [],
+    usedStationIds: [], // legacy (kept)
     scoredStationIds: [],
-    usedStationIds: [], // backward compatible mirror of scoredStationIds
     score: 0,
     penalty: 0,
   };
@@ -87,6 +87,7 @@ export function selectCpSpotsMVP(allJudgeSpots: Spot[], config: GameConfig & { s
 }
 
 export function checkInSpotOrCp(progress: GameProgress, loc: LatLng, accuracy: number, judgeSpots: Spot[]): CheckInResult {
+  if (progress.endedAtMs) return { ok:false, code:'GAME_ENDED', message:'ゲームは終了しています。' };
   if (accuracy > MAX_ACCURACY_M) return { ok:false, code:'ACCURACY_TOO_BAD', message:`accuracyが大きすぎます（${Math.round(accuracy)}m）。100m以内になるまで待ってください。` };
 
   const cand = pickCandidateSpotWithinRadius(judgeSpots, loc);
@@ -136,6 +137,7 @@ function pickStationWithinRadius(stations: Station[], loc: LatLng): { st: Statio
 
 export function jrBoard(progress: GameProgress, loc: LatLng, accuracy: number, stations: Station[]): CheckInResult {
   const t = nowMs();
+  if (progress.endedAtMs) return { ok:false, code:'GAME_ENDED', message:'ゲームは終了しています。' };
   if (accuracy > MAX_ACCURACY_M) return { ok:false, code:'ACCURACY_TOO_BAD', message:`accuracyが大きすぎます（${Math.round(accuracy)}m）。100m以内になるまで待ってください。` };
   if (!progress.config.jrEnabled) return { ok:false, code:'JR_DISABLED', message:'JRはOFFです。' };
   if (progress.cooldownUntilMs && t < progress.cooldownUntilMs) {
@@ -148,7 +150,6 @@ export function jrBoard(progress: GameProgress, loc: LatLng, accuracy: number, s
   if (!cand) return { ok:false, code:'NO_STATION', message:'50m以内に駅が見つかりません。' };
 
   const stationId = cand.st.stationId;
-
   const next: GameProgress = {
     ...progress,
     boardedStationId: stationId,
@@ -174,6 +175,7 @@ function stationsBetween(board: Station, alight: Station, byOrder: Map<number, S
 
 export function jrAlight(progress: GameProgress, loc: LatLng, accuracy: number, stations: Station[]): CheckInResult {
   const t = nowMs();
+  if (progress.endedAtMs) return { ok:false, code:'GAME_ENDED', message:'ゲームは終了しています。' };
   if (accuracy > MAX_ACCURACY_M) return { ok:false, code:'ACCURACY_TOO_BAD', message:`accuracyが大きすぎます（${Math.round(accuracy)}m）。100m以内になるまで待ってください。` };
   if (!progress.config.jrEnabled) return { ok:false, code:'JR_DISABLED', message:'JRはOFFです。' };
   if (progress.cooldownUntilMs && t < progress.cooldownUntilMs) {
@@ -194,51 +196,42 @@ export function jrAlight(progress: GameProgress, loc: LatLng, accuracy: number, 
   const board = byId.get(boardedId);
   if (!board) return { ok:false, code:'BOARD_STATION_UNKNOWN', message:'乗車駅が駅マスタに見つかりません。' };
 
-  // scoring: each station is scored at most once per game (both directions included)
+  // scoring: board + alight + pass stations
   const pass = stationsBetween(board, cand.st, byOrder);
   const scoreOf = (st: Station) => (isFinite(st.score ?? 0) ? (st.score ?? 0) : 0);
 
-  // Backward compatibility:
-  // - New games store scored ids in `scoredStationIds`.
-  // - Older saved data might have only `usedStationIds`.
-  //   However, older versions added the boarded station into usedStationIds at BOARD time,
-  //   so if currently boarded, we must NOT treat it as already scored yet.
-  const scored = new Set(progress.scoredStationIds ?? progress.usedStationIds ?? []);
-  if (progress.boardedStationId) scored.delete(progress.boardedStationId);
-
-  const segmentStations: Station[] = [board, ...pass, cand.st];
-  const newlyScoredIds: string[] = [];
+  // station points are added at most once per stationId per game
+  const scored = new Set(progress.scoredStationIds ?? []);
+  const rideStations: Station[] = [board, ...pass, cand.st];
   let jrScore = 0;
-  for (const st of segmentStations) {
+  for (const st of rideStations) {
     if (scored.has(st.stationId)) continue;
     jrScore += scoreOf(st);
     scored.add(st.stationId);
-    newlyScoredIds.push(st.stationId);
   }
 
   const next: GameProgress = {
     ...progress,
     score: progress.score + jrScore,
     boardedStationId: undefined,
+    // keep legacy usedStationIds as-is for backward compatibility
     scoredStationIds: Array.from(scored),
-    usedStationIds: Array.from(scored), // mirror
     visitedStationEvents: [...progress.visitedStationEvents, { type:'ALIGHT', stationId: alightId, atMs: t }],
     cooldownUntilMs: t + JR_COOLDOWN_SEC * 1000,
     lastLocation: { lat: loc.lat, lng: loc.lng, accuracy, atMs: t }
   };
 
   const passNames = pass.map(s=>s.name).join('、');
-  const skipped = segmentStations.length - newlyScoredIds.length;
-  const bonusNote = skipped > 0 ? `（加算済み駅${skipped}件は0点）` : '';
   const msg = pass.length
-    ? `降車チェックイン：${cand.st.name}（通過：${passNames}、+${jrScore}）${bonusNote}`
-    : `降車チェックイン：${cand.st.name}（+${jrScore}）${bonusNote}`;
+    ? `降車チェックイン：${cand.st.name}（通過：${passNames}、+${jrScore}）`
+    : `降車チェックイン：${cand.st.name}（+${jrScore}）`;
 
   return { ok:true, kind:'JR_ALIGHT', message: msg, progress: next };
 }
 
 export function goalCheckIn(progress: GameProgress, loc: LatLng, accuracy: number): CheckInResult {
   const t = nowMs();
+  if (progress.endedAtMs) return { ok:false, code:'GAME_ENDED', message:'ゲームは終了しています。' };
   if (accuracy > MAX_ACCURACY_M) return { ok:false, code:'ACCURACY_TOO_BAD', message:`accuracyが大きすぎます（${Math.round(accuracy)}m）。100m以内になるまで待ってください。` };
   // check radius to goal
   const d = haversineMeters(loc, progress.config.goal);
@@ -248,6 +241,7 @@ export function goalCheckIn(progress: GameProgress, loc: LatLng, accuracy: numbe
   const next: GameProgress = {
     ...progress,
     endedAtMs: t,
+    endReason: 'GOAL',
     penalty,
     score: progress.score - penalty,
     lastLocation: { lat: loc.lat, lng: loc.lng, accuracy, atMs: t }

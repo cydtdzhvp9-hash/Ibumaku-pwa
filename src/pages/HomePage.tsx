@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { clearGame, loadGame } from '../db/repo';
+import { clearGame, loadGame, saveGame } from '../db/repo';
 import { useGameStore } from '../store/gameStore';
 import { useToast } from '../hooks/useToast';
 
@@ -13,32 +13,47 @@ export default function HomePage() {
   useEffect(() => {
     (async () => {
       const g = await loadGame();
-      // 「再開」は“ゲーム途中（endedAtMsが未設定）”のみ有効。
-      const inProgress = !!g && !g.endedAtMs;
-      setHasGame(inProgress);
-      if (inProgress) setProgress(g);
+      if (!g) {
+        setHasGame(false);
+        return;
+      }
+
+      // If overtime grace has expired, treat as abandoned (no result / no resume)
+      if (!g.endedAtMs) {
+        const plannedEnd = g.startedAtMs + g.config.durationMin * 60_000;
+        const graceEnd = plannedEnd + 60 * 60_000;
+        const now = Date.now();
+        if (now > graceEnd) {
+          const abandoned = { ...g, endedAtMs: now, endReason: 'ABANDONED' as const };
+          await saveGame(abandoned);
+          setProgress(abandoned);
+          setHasGame(false);
+          show('タイムアップから1時間を超えたため、途中離脱扱いでゲーム終了しました。');
+          return;
+        }
+      }
+
+      // Resume is allowed only when the game is not ended.
+      setHasGame(!g.endedAtMs);
+      setProgress(g);
     })();
-  }, [setProgress]);
+  }, [setProgress, show]);
 
   const onResume = async () => {
     const g = await loadGame();
     if (!g) return show('途中データがありません。');
-    // ゴール/タイムアップ済みは再開不可（リザルトへ誘導）
-    if (g.endedAtMs) {
-      setProgress(g);
-      nav('/result');
-      return;
-    }
+    if (g.endedAtMs) return show('ゲームは終了しています。新規で開始してください。');
     setProgress(g);
     nav('/play');
   };
 
   const onNew = async () => {
     const g = await loadGame();
-    // 「途中データ」がある場合のみ確認する（終了済みは“途中”ではない）
-    if (g && !g.endedAtMs) {
-      const ok = window.confirm('ゲーム途中のデータがあります。新規を開始すると途中データは消えます。よろしいですか？');
-      if (!ok) return;
+    if (g) {
+      if (!g.endedAtMs) {
+        const ok = window.confirm('ゲーム途中のデータがあります。新規を開始すると途中データは消えます。よろしいですか？');
+        if (!ok) return;
+      }
       await clearGame();
       setProgress(undefined);
       show('途中データを削除しました。');

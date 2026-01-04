@@ -52,7 +52,8 @@ export default function SetupPage() {
           center,
           zoom: 11,
           ...(mapId ? { mapId } : {}),
-          streetViewControl: false, // ペグマン非表示
+          fullscreenControl: false, // 全画面ボタン非表示
+          mapTypeControl: false, // 地図/航空写真ボタン非表示
         });
         mapRef.current = map;
 

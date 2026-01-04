@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { loadGame } from '../db/repo';
+import { calcPenalty } from '../logic/game';
 import { useGameStore } from '../store/gameStore';
 
 export default function ResultPage() {

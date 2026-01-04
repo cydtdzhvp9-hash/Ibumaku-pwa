@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { attachMap, parkMap } from '../map/mapSingleton';
+import { attachMap, parkMap, getMap } from '../map/mapSingleton';
 import { getJudgeTargetSpots, getStationsByOrder, loadGame, saveGame } from '../db/repo';
 import type { Spot, Station } from '../types';
 import { haversineMeters } from '../utils/geo';
@@ -30,6 +30,14 @@ export default function PlayPage() {
   const progress = useGameStore((s) => s.progress);
   const setProgress = useGameStore((s) => s.setProgress);
   const remainingSec = useGameStore((s) => s.remainingSec);
+
+  // Keep latest progress accessible from effects without re-running map init
+  const progressRef = useRef(progress);
+  useEffect(() => {
+    progressRef.current = progress;
+  }, [progress]);
+
+  const startCenterAppliedRef = useRef(false);
 
   const [spots, setSpots] = useState<Spot[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
@@ -500,15 +508,20 @@ export default function PlayPage() {
       try {
         if (!mapEl.current) return;
 
-        const p = progress;
+        // Avoid resetting zoom on every progress update: create/attach map only once per page mount.
+        if (mapRef.current) return;
+
+        const p = progressRef.current;
         const center = p?.config.start ?? { lat: 31.2, lng: 130.5 };
         const mapId = (import.meta.env.VITE_GOOGLE_MAP_ID as string) || undefined;
 
+        const hasExisting = !!getMap();
         const map = await attachMap(mapEl.current, {
           center,
-          zoom: 13,
+          ...(hasExisting ? {} : { zoom: 13 }),
           ...(mapId ? { mapId } : {}),
           gestureHandling: 'greedy', // 1本指で移動
+          streetViewControl: false, // ペグマン非表示
         });
 
         mapRef.current = map;
@@ -564,7 +577,22 @@ export default function PlayPage() {
       parkMap();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [show, progress]);
+  }, [show, DEBUG_TOOLS]);
+
+  // Apply the game start center once (does not touch zoom), e.g. after reload when progress is loaded asynchronously.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || startCenterAppliedRef.current) return;
+    const start = progress?.config?.start;
+    if (!start) return;
+
+    try {
+      map.setCenter(start);
+      startCenterAppliedRef.current = true;
+    } catch {
+      /* noop */
+    }
+  }, [progress?.config?.start?.lat, progress?.config?.start?.lng]);
 
   // ===== Render markers =====
   useEffect(() => {

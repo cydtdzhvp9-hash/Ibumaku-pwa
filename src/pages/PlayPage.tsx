@@ -522,6 +522,8 @@ export default function PlayPage() {
           ...(mapId ? { mapId } : {}),
           gestureHandling: 'greedy', // 1本指で移動
           streetViewControl: false, // ペグマン非表示
+          fullscreenControl: false, // 全画面ボタン非表示
+          mapTypeControl: false, // 地図/航空写真ボタン非表示
         });
 
         mapRef.current = map;
@@ -908,7 +910,7 @@ export default function PlayPage() {
       map,
       markers: spotMarkers,
       renderer: {
-        render: ({ position }: { position: google.maps.LatLngLiteral }) => {
+        render: ({ position }) => {
           return new google.maps.Marker({
             position,
             icon: {

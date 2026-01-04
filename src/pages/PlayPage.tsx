@@ -12,7 +12,6 @@ import {
   CHECKIN_RADIUS_M,
   JR_COOLDOWN_SEC,
   MAX_ACCURACY_M,
-  calcPenalty,
   checkInSpotOrCp,
   goalCheckIn,
   jrAlight,
@@ -120,33 +119,6 @@ export default function PlayPage() {
     return () => window.clearInterval(t);
   }, []);
 
-  // ===== Finish handling (GOAL / TIME_UP) =====
-  // - endedAtMs が入った時点で「ゲーム終了」扱い。
-  // - 終了済みならプレイ画面に留まらずリザルトへ。
-  useEffect(() => {
-    if (!progress) return;
-    if (progress.endedAtMs) {
-      nav('/result');
-      return;
-    }
-
-    // タイムアップで終了（endedAtMs を plannedEnd に固定して、ドリフトで余計なペナルティが付かないようにする）
-    const plannedEndMs = progress.startedAtMs + progress.config.durationMin * 60_000;
-    if (nowMs >= plannedEndMs) {
-      const endedAtMs = plannedEndMs;
-      const penalty = calcPenalty(progress.startedAtMs, progress.config.durationMin, endedAtMs);
-      const next = {
-        ...progress,
-        endedAtMs,
-        penalty,
-        score: progress.score - penalty,
-      };
-      setProgress(next);
-      void saveGame(next);
-      nav('/result');
-    }
-  }, [nowMs, nav, progress, setProgress]);
-
   // ===== helpers =====
   const normPos = (pos: any): { lat: number; lng: number } | null => {
     if (!pos) return null;
@@ -164,6 +136,17 @@ export default function PlayPage() {
       // eslint-disable-next-line no-console
       console.warn('saveGame failed');
     });
+  };
+
+  const abandonGameNow = async () => {
+    if (!progress) return;
+    const now = Date.now();
+    const abandoned = { ...progress, endedAtMs: now, endReason: 'ABANDONED' as const };
+    setProgress(abandoned);
+    await saveGame(abandoned);
+    pushLog('ABANDONED', '途中離脱扱いでゲーム終了', { now });
+    show('タイムアップから1時間を超えたため、途中離脱扱いでゲーム終了しました。', 4500);
+    nav('/');
   };
 
   const upsertUserMarker = (map: any, pos: { lat: number; lng: number }) => {
@@ -454,6 +437,32 @@ export default function PlayPage() {
         nav('/');
         return;
       }
+
+      // If game already ended, route away from Play.
+      if (g.endedAtMs) {
+        if ((g as any).endReason === 'ABANDONED') {
+          show('ゲームは途中離脱扱いで終了しています。', 4500);
+          nav('/');
+          return;
+        }
+        // GOAL (or legacy ended game): show result
+        setProgress(g);
+        nav('/result');
+        return;
+      }
+
+      // If overtime grace has expired, treat as abandoned (no result / no resume)
+      const plannedEnd = g.startedAtMs + (g.config?.durationMin ?? 0) * 60_000;
+      const graceEnd = plannedEnd + 60 * 60_000;
+      const now = Date.now();
+      if (now > graceEnd) {
+        const abandoned = { ...g, endedAtMs: now, endReason: 'ABANDONED' as const };
+        setProgress(abandoned);
+        await saveGame(abandoned);
+        show('タイムアップから1時間を超えたため、途中離脱扱いでゲーム終了しました。', 4500);
+        nav('/');
+        return;
+      }
       setProgress(g);
       const s = await getJudgeTargetSpots();
       setSpots(s);
@@ -466,6 +475,24 @@ export default function PlayPage() {
     if (!progress?.cooldownUntilMs) return 0;
     return Math.max(0, Math.ceil((progress.cooldownUntilMs - nowMs) / 1000));
   }, [progress?.cooldownUntilMs, nowMs]);
+
+  const plannedEndMs = useMemo(() => {
+    if (!progress) return undefined;
+    return progress.startedAtMs + (progress.config?.durationMin ?? 0) * 60_000;
+  }, [progress?.startedAtMs, progress?.config?.durationMin]);
+
+  const graceEndMs = useMemo(() => {
+    if (!plannedEndMs) return undefined;
+    return plannedEndMs + 60 * 60_000;
+  }, [plannedEndMs]);
+
+  // While on PlayPage, if grace time expires without GOAL check-in, end the game as ABANDONED (no result, no resume).
+  useEffect(() => {
+    if (!progress || progress.endedAtMs || !graceEndMs) return;
+    if (nowMs <= graceEndMs) return;
+
+    void abandonGameNow();
+  }, [graceEndMs, nowMs, nav, progress, setProgress, show]);
 
   // ===== Map init / cleanup =====
   useEffect(() => {
@@ -877,9 +904,9 @@ export default function PlayPage() {
     if (checkInBusy) return;
     if (!online) return show('オフライン/圏外のためチェックインできません。オンラインで再試行してください。', 4500);
     if (!progress) return;
-    if (progress.endedAtMs) {
-      show('このゲームは終了しています。リザルトを確認してください。', 4500);
-      nav('/result');
+    if (progress.endedAtMs) return show('ゲームは終了しています。', 4500);
+    if (graceEndMs && Date.now() > graceEndMs) {
+      await abandonGameNow();
       return;
     }
 
@@ -978,9 +1005,9 @@ export default function PlayPage() {
     if (checkInBusy) return;
     if (!online) return show('オフライン/圏外のためチェックインできません。', 4500);
     if (!progress) return;
-    if (progress.endedAtMs) {
-      show('このゲームは終了しています。リザルトを確認してください。', 4500);
-      nav('/result');
+    if (progress.endedAtMs) return show('ゲームは終了しています。', 4500);
+    if (graceEndMs && Date.now() > graceEndMs) {
+      await abandonGameNow();
       return;
     }
 
@@ -1037,9 +1064,14 @@ export default function PlayPage() {
     if (checkInBusy) return;
     if (!online) return show('オフライン/圏外のためチェックインできません。', 4500);
     if (!progress) return;
-    if (progress.endedAtMs) {
-      show('このゲームは終了しています。リザルトを確認してください。', 4500);
-      nav('/result');
+    if (progress.endedAtMs) return show('ゲームは終了しています。', 4500);
+    if (graceEndMs && Date.now() > graceEndMs) {
+      await abandonGameNow();
+      return;
+    }
+    if (progress.endedAtMs) return show('ゲームは終了しています。', 4500);
+    if (graceEndMs && Date.now() > graceEndMs) {
+      await abandonGameNow();
       return;
     }
 
@@ -1096,9 +1128,14 @@ export default function PlayPage() {
     if (checkInBusy) return;
     if (!online) return show('オフライン/圏外のためチェックインできません。', 4500);
     if (!progress) return;
-    if (progress.endedAtMs) {
-      show('このゲームは終了しています。リザルトを確認してください。', 4500);
-      nav('/result');
+    if (progress.endedAtMs) return show('ゲームは終了しています。', 4500);
+    if (graceEndMs && Date.now() > graceEndMs) {
+      await abandonGameNow();
+      return;
+    }
+    if (progress.endedAtMs) return show('ゲームは終了しています。', 4500);
+    if (graceEndMs && Date.now() > graceEndMs) {
+      await abandonGameNow();
       return;
     }
 
@@ -1290,7 +1327,7 @@ export default function PlayPage() {
         </div>
         {progress?.config.jrEnabled && (
           <div className="hint">
-            ・JR：成功後60秒は無反応（ボタンはグレーダウン）／同一駅での乗車・降車は禁止（ゲーム全体で同一駅の乗降再利用も不可）
+            ・JR：成功後60秒は無反応（ボタンはグレーダウン）／同一駅での乗車・降車は禁止／駅ポイントは同じ駅を1ゲーム1回まで
           </div>
         )}
       </div>

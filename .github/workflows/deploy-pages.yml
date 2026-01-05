@@ -34,13 +34,23 @@ jobs:
           VITE_DEBUG_TOOLS: "0"
         run: npm run build
 
-      - name: Copy data into dist
-        run: |
-          if [ -d "data" ]; then
-            mkdir -p dist/data
-            cp -r data/* dist/data/
-          fi
-          touch dist/.nojekyll
+      - name: Copy data into dist (assert)
+          run: |
+           echo "== repo root =="
+            ls -la
+            echo "== data dir =="
+            ls -la data || true
+
+            mkdir -p dist
+            cp -r data dist/
+
+            echo "== dist after copy =="
+            ls -la dist
+            echo "== dist/data =="
+            ls -la dist/data || true
+
+            # 必須ファイルが無いなら失敗させる
+            test -f dist/data/version.json
 
       - uses: actions/upload-pages-artifact@v3
         with:

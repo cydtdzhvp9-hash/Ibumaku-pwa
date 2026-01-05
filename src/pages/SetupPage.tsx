@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { attachMap, parkMap } from '../map/mapSingleton';
 import type { GameConfig, LatLng, Spot } from '../types';
@@ -8,14 +8,15 @@ import { useOnline } from '../hooks/useOnline';
 import { getCurrentFix } from '../logic/location';
 import { resolveStartGoal, useGameStore } from '../store/gameStore';
 import { selectCpSpotsMVP, startNewGame } from '../logic/game';
+import { syncMasterDataIfNeeded } from '../logic/dataSync';
 
-const durationOptions = Array.from({length: 48}, (_,i)=>(i+1)*15); // 15..720
+const durationOptions = Array.from({ length: 48 }, (_, i) => (i + 1) * 15); // 15..720
 
 export default function SetupPage() {
   const nav = useNavigate();
   const online = useOnline();
   const { show, Toast } = useToast();
-  const setProgress = useGameStore(s => s.setProgress);
+  const setProgress = useGameStore((s) => s.setProgress);
 
   const [config, setConfig] = useState<GameConfig>({
     durationMin: 180,
@@ -32,6 +33,7 @@ export default function SetupPage() {
   const goalMarkerRef = useRef<any>(null);
 
   const [judgeSpots, setJudgeSpots] = useState<Spot[]>([]);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -40,7 +42,7 @@ export default function SetupPage() {
     })();
   }, []);
 
-    useEffect(() => {
+  useEffect(() => {
     (async () => {
       try {
         if (!mapEl.current) return;
@@ -59,7 +61,11 @@ export default function SetupPage() {
 
         // click to set start then goal (toggle by state)
         if (clickListenerRef.current) {
-          try { clickListenerRef.current.remove(); } catch { /* noop */ }
+          try {
+            clickListenerRef.current.remove();
+          } catch {
+            /* noop */
+          }
           clickListenerRef.current = null;
         }
         clickListenerRef.current = map.addListener('click', (e: google.maps.MapMouseEvent) => {
@@ -84,14 +90,17 @@ export default function SetupPage() {
 
     return () => {
       if (clickListenerRef.current) {
-        try { clickListenerRef.current.remove(); } catch { /* noop */ }
+        try {
+          clickListenerRef.current.remove();
+        } catch {
+          /* noop */
+        }
         clickListenerRef.current = null;
       }
       // Keep the single map instance alive across routes.
       parkMap();
     };
   }, [show]);
-
 
   useEffect(() => {
     // update markers
@@ -100,10 +109,13 @@ export default function SetupPage() {
     // AdvancedMarker might be available under google.maps.marker.AdvancedMarkerElement
     const AdvancedMarker = (google.maps as any).marker?.AdvancedMarkerElement;
 
-    const up = (kind: 'start'|'goal', pos?: LatLng) => {
+    const up = (kind: 'start' | 'goal', pos?: LatLng) => {
       const ref = kind === 'start' ? startMarkerRef : goalMarkerRef;
       if (!pos) {
-        if (ref.current) { ref.current.map = null; ref.current = null; }
+        if (ref.current) {
+          ref.current.map = null;
+          ref.current = null;
+        }
         return;
       }
       if (!AdvancedMarker) return;
@@ -140,48 +152,78 @@ export default function SetupPage() {
   useEffect(() => {
     return () => {
       if (startMarkerRef.current) {
-        try { startMarkerRef.current.map = null; } catch { /* noop */ }
+        try {
+          startMarkerRef.current.map = null;
+        } catch {
+          /* noop */
+        }
         startMarkerRef.current = null;
       }
       if (goalMarkerRef.current) {
-        try { goalMarkerRef.current.map = null; } catch { /* noop */ }
+        try {
+          goalMarkerRef.current.map = null;
+        } catch {
+          /* noop */
+        }
         goalMarkerRef.current = null;
       }
     };
   }, []);
 
-
   const onUseCurrentForStartGoal = async () => {
     try {
       const fix = await getCurrentFix();
-      setConfig(c => ({ ...c, start: {lat:fix.lat, lng:fix.lng}, goal: {lat:fix.lat, lng:fix.lng} }));
+      setConfig((c) => ({ ...c, start: { lat: fix.lat, lng: fix.lng }, goal: { lat: fix.lat, lng: fix.lng } }));
       show('現在地をスタート/ゴールに設定しました。');
-      mapRef.current?.setCenter({lat:fix.lat, lng:fix.lng});
+      mapRef.current?.setCenter({ lat: fix.lat, lng: fix.lng });
       mapRef.current?.setZoom(14);
     } catch (e: any) {
       show(e?.message ?? '位置情報を取得できません。', 4500);
     }
   };
 
-  const canStart = online;
+  const canStart = online && !syncing;
 
   const onStart = async () => {
     if (!online) return show('オフライン/圏外では開始できません。オンラインにして再試行してください。', 4500);
-    // resolve start/goal
-    let current: LatLng = { lat: 31.2, lng: 130.5 };
+
+    // 方式C: ゲーム開始時にマップデータを自動更新（差分があれば全件上書き）
+    setSyncing(true);
     try {
-      const fix = await getCurrentFix();
-      current = { lat: fix.lat, lng: fix.lng };
-    } catch {
-      // ok: if not available, keep fallback center
+      const sync = await syncMasterDataIfNeeded();
+      if (sync.status === 'failed' && !sync.canProceed) {
+        show(sync.message ?? 'マップデータの取得に失敗しました。オンライン接続を確認して再試行してください。', 6000);
+        return;
+      }
+      if (sync.message) show(sync.message, 3500);
+
+      // Pull latest judge-target spots (in case sync overwrote DB)
+      const spotsForCp = await getJudgeTargetSpots();
+      setJudgeSpots(spotsForCp);
+      if (spotsForCp.length === 0) {
+        show('スポットデータがありません。CSVが正しく配置されているか確認してください。', 6000);
+        return;
+      }
+
+      // resolve start/goal
+      let current: LatLng = { lat: 31.2, lng: 130.5 };
+      try {
+        const fix = await getCurrentFix();
+        current = { lat: fix.lat, lng: fix.lng };
+      } catch {
+        // ok: if not available, keep fallback center
+      }
+      const resolved = resolveStartGoal(config, current);
+
+      // CP selection (MVP)
+      const cpIds = selectCpSpotsMVP(spotsForCp, resolved);
+      const progress = startNewGame(resolved, cpIds);
+      await saveGame(progress);
+      setProgress(progress);
+      nav('/play');
+    } finally {
+      setSyncing(false);
     }
-    const resolved = resolveStartGoal(config, current);
-    // CP selection (MVP)
-    const cpIds = selectCpSpotsMVP(judgeSpots, resolved);
-    const progress = startNewGame(resolved, cpIds);
-    await saveGame(progress);
-    setProgress(progress);
-    nav('/play');
   };
 
   return (
@@ -192,20 +234,40 @@ export default function SetupPage() {
         <div className="row">
           <div className="col">
             <label className="hint">制限時間（15分刻み）</label>
-            <select className="input" value={config.durationMin} onChange={e=>setConfig(c=>({ ...c, durationMin: Number(e.target.value) }))}>
-              {durationOptions.map(m => <option key={m} value={m}>{m}分</option>)}
+            <select
+              className="input"
+              value={config.durationMin}
+              onChange={(e) => setConfig((c) => ({ ...c, durationMin: Number(e.target.value) }))}
+            >
+              {durationOptions.map((m) => (
+                <option key={m} value={m}>
+                  {m}分
+                </option>
+              ))}
             </select>
           </div>
           <div className="col">
             <label className="hint">CP数（0〜5）</label>
-            <select className="input" value={config.cpCount} onChange={e=>setConfig(c=>({ ...c, cpCount: Number(e.target.value) }))}>
-              {[0,1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+            <select
+              className="input"
+              value={config.cpCount}
+              onChange={(e) => setConfig((c) => ({ ...c, cpCount: Number(e.target.value) }))}
+            >
+              {[0, 1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
             </select>
             <div className="hint">CP=1〜2は「なるべくスタート〜ゴール間」。CP≥3は完全ランダム。</div>
           </div>
           <div className="col">
             <label className="hint">JR使用</label>
-            <select className="input" value={config.jrEnabled ? 'on' : 'off'} onChange={e=>setConfig(c=>({ ...c, jrEnabled: e.target.value==='on' }))}>
+            <select
+              className="input"
+              value={config.jrEnabled ? 'on' : 'off'}
+              onChange={(e) => setConfig((c) => ({ ...c, jrEnabled: e.target.value === 'on' }))}
+            >
               <option value="off">OFF</option>
               <option value="on">ON</option>
             </select>
@@ -213,17 +275,21 @@ export default function SetupPage() {
           </div>
         </div>
 
-        <div style={{height:10}} />
+        <div style={{ height: 10 }} />
         <div className="actions">
-          <button className="btn" onClick={onUseCurrentForStartGoal}>現在地をスタート/ゴールにする</button>
-          <button className="btn primary" onClick={onStart} disabled={!canStart}>開始</button>
+          <button className="btn" onClick={onUseCurrentForStartGoal} disabled={syncing}>
+            現在地をスタート/ゴールにする
+          </button>
+          <button className="btn primary" onClick={onStart} disabled={!canStart}>
+            {syncing ? 'データ確認中...' : '開始'}
+          </button>
         </div>
-        <div className="hint" style={{marginTop:10}}>
+        <div className="hint" style={{ marginTop: 10 }}>
           ・地図をタップして START / GOAL を設定（未指定なら開始時に現在地が採用されます）
         </div>
       </div>
 
-      <div style={{height:12}} />
+      <div style={{ height: 12 }} />
       <div className="card">
         <h3>スタート/ゴール指定（地図）</h3>
         <div className="mapWrap" ref={mapEl} />

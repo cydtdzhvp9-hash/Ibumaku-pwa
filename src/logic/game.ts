@@ -88,6 +88,7 @@ export function selectCpSpotsMVP(allJudgeSpots: Spot[], config: GameConfig & { s
 
 export function checkInSpotOrCp(progress: GameProgress, loc: LatLng, accuracy: number, judgeSpots: Spot[]): CheckInResult {
   if (progress.endedAtMs) return { ok:false, code:'GAME_ENDED', message:'ゲームは終了しています。' };
+  if (progress.boardedStationId) return { ok:false, code:'IN_TRAIN', message:'乗車中は駅チェックインのみ可能です。降車後に再試行してください。' };
   if (accuracy > MAX_ACCURACY_M) return { ok:false, code:'ACCURACY_TOO_BAD', message:`accuracyが大きすぎます（${Math.round(accuracy)}m）。100m以内になるまで待ってください。` };
 
   const cand = pickCandidateSpotWithinRadius(judgeSpots, loc);
@@ -232,6 +233,7 @@ export function jrAlight(progress: GameProgress, loc: LatLng, accuracy: number, 
 export function goalCheckIn(progress: GameProgress, loc: LatLng, accuracy: number): CheckInResult {
   const t = nowMs();
   if (progress.endedAtMs) return { ok:false, code:'GAME_ENDED', message:'ゲームは終了しています。' };
+  if (progress.boardedStationId) return { ok:false, code:'IN_TRAIN', message:'乗車中は駅チェックインのみ可能です。降車後に再試行してください。' };
   if (accuracy > MAX_ACCURACY_M) return { ok:false, code:'ACCURACY_TOO_BAD', message:`accuracyが大きすぎます（${Math.round(accuracy)}m）。100m以内になるまで待ってください。` };
   // check radius to goal
   const d = haversineMeters(loc, progress.config.goal);

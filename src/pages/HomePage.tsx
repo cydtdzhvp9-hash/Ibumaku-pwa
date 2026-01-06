@@ -65,11 +65,11 @@ export default function HomePage() {
     <>
       <div className="card">
         <h3>ホーム</h3>
-        <p className="hint">MVP：CSV取込 → 新規開始（または再開） → プレイ → リザルト</p>
+        <p className="hint">MVP：新規開始（または再開） → プレイ → リザルト</p>
         <div className="actions">
           <button className="btn primary" onClick={onNew}>新規</button>
           <button className="btn" onClick={onResume} disabled={!hasGame}>再開</button>
-          <Link className="btn" to="/admin/import">CSV取込</Link>
+          <Link className="btn" to="/result">結果表示</Link>
         </div>
         <hr />
         <div className="hint">

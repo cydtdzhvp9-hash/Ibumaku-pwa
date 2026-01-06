@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { loadGame } from '../db/repo';
+import { getAllSpots, getStationsByOrder, loadGame } from '../db/repo';
 import { calcPenalty } from '../logic/game';
 import { useGameStore } from '../store/gameStore';
+import type { Spot, Station } from '../types';
 
 export default function ResultPage() {
   const nav = useNavigate();
   const progress = useGameStore(s=>s.progress);
   const setProgress = useGameStore(s=>s.setProgress);
   const [loaded, setLoaded] = useState(false);
+  const [spots, setSpots] = useState<Spot[]>([]);
+  const [stations, setStations] = useState<Station[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -16,6 +19,13 @@ export default function ResultPage() {
       if (!g || !g.endedAtMs) { nav('/'); return; }
       if ((g as any).endReason === 'ABANDONED') { nav('/'); return; }
       setProgress(g);
+      try {
+        const [allSpots, sts] = await Promise.all([getAllSpots(), getStationsByOrder()]);
+        setSpots(allSpots);
+        setStations(sts);
+      } catch {
+        // If master is not available, show IDs as-is.
+      }
       setLoaded(true);
     })();
   }, [nav, progress, setProgress]);
@@ -29,17 +39,97 @@ export default function ResultPage() {
     ? calcPenalty(progress.startedAtMs, progress.config.durationMin, progress.endedAtMs)
     : 0;
 
+
+  const spotNameById = new Map(spots.map(s => [s.ID, s.Name] as const));
+  const stationById = new Map(stations.map(s => [s.stationId, s] as const));
+  const stationByOrder = new Map(stations.map(s => [s.orderIndex, s] as const));
+
+  const visitedSpotNames = progress.visitedSpotIds.map(id => spotNameById.get(id) ?? id);
+
+  // CP: show only achieved CP names (do not list missing ones)
+  const reachedCpNames = progress.cpSpotIds
+    .filter(id => reachedCpSet.has(id))
+    .map(id => spotNameById.get(id) ?? id);
+
+  // JR event lists
+  const boardIds = progress.visitedStationEvents.filter(e => e.type === 'BOARD').map(e => e.stationId);
+  const alightIds = progress.visitedStationEvents.filter(e => e.type === 'ALIGHT').map(e => e.stationId);
+
+  const stationsBetween = (boardId: string, alightId: string): string[] => {
+    const a = stationById.get(boardId);
+    const b = stationById.get(alightId);
+    if (!a || !b) return [];
+    const step = a.orderIndex < b.orderIndex ? 1 : -1;
+    const ids: string[] = [];
+    for (let i = a.orderIndex + step; step > 0 ? i < b.orderIndex : i > b.orderIndex; i += step) {
+      const st = stationByOrder.get(i);
+      if (st) ids.push(st.stationId);
+    }
+    return ids;
+  };
+
+  const passIds: string[] = [];
+  let currentBoard: string | undefined;
+  for (const ev of progress.visitedStationEvents) {
+    if (ev.type === 'BOARD') {
+      currentBoard = ev.stationId;
+      continue;
+    }
+    if (ev.type === 'ALIGHT') {
+      if (!currentBoard) continue;
+      passIds.push(...stationsBetween(currentBoard, ev.stationId));
+      currentBoard = undefined;
+    }
+  }
+
+  const stationName = (id: string) => stationById.get(id)?.name ?? id;
+  const boardNames = boardIds.map(stationName);
+  const alightNames = alightIds.map(stationName);
+  const passNames = passIds.map(stationName);
+
+  const penaltyDisplay = progress.penalty === 0 ? '0' : `-${Math.abs(progress.penalty)}`;
+
   return (
     <div className="card">
       <h3>リザルト</h3>
-      <div>スコア：<b>{progress.score}</b></div>
-      <div>ペナルティ：{progress.penalty}</div>
+
+      <div>総合スコア：<b>{progress.score}</b></div>
+
+      <hr />
+
+      <div>ペナルティ：<b>{penaltyDisplay}</b></div>
       <div className="hint">内訳：時間{timePenalty}点{cpPenalty>0 ? ` / CP未達${cpPenalty}点（未達${missingCpCount}）` : ''}</div>
       <div className="hint">※ペナルティ：早着（終了15分以上前）/遅刻は、秒を切り捨てて分換算し、1分=1点で減点。</div>
+
       <hr />
+
       <div>訪問スポット数：{progress.visitedSpotIds.length}</div>
-      <div>CP達成：{progress.reachedCpIds.length}/{progress.cpSpotIds.length}</div>
-      <div>JRイベント：{progress.visitedStationEvents.length}</div>
+      {visitedSpotNames.length > 0 && (
+        <ul>
+          {visitedSpotNames.map((name, idx) => (
+            <li key={`${idx}-${name}`}>{name}</li>
+          ))}
+        </ul>
+      )}
+
+      <div>CP達成数：{reachedCpNames.length}</div>
+      {reachedCpNames.length > 0 && (
+        <ul>
+          {reachedCpNames.map((name, idx) => (
+            <li key={`${idx}-${name}`}>{name}</li>
+          ))}
+        </ul>
+      )}
+
+      <div>JRイベント数：{progress.visitedStationEvents.length}</div>
+      {progress.visitedStationEvents.length > 0 && (
+        <div className="hint" style={{ marginTop: 6 }}>
+          <div>乗車駅：{boardNames.length ? boardNames.join('、') : 'なし'}</div>
+          <div>降車駅：{alightNames.length ? alightNames.join('、') : 'なし'}</div>
+          <div>通過駅：{passNames.length ? passNames.join('、') : 'なし'}</div>
+        </div>
+      )}
+
       <hr />
       <div className="actions">
         <Link className="btn" to="/">ホーム</Link>

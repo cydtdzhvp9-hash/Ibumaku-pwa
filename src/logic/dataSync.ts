@@ -28,12 +28,34 @@ const LS_KEY_VER = 'ibumaku.masterData.version';
 
 function defaultBaseUrl(): string {
   // Fallback base URL (override with VITE_DATA_BASE_URL)
-  return 'https://cydtdzhvp9-hash.github.io/ibumaku-pwa/data';
+  // Use Vite's BASE_URL so it works on GitHub Pages (Project Pages) without hard-coding repo name.
+  // Example: origin=https://<user>.github.io, BASE_URL=/ibumaku-pwa/  =>  https://<user>.github.io/ibumaku-pwa/data
+  const base = ((import.meta as any).env?.BASE_URL as string | undefined) ?? '/';
+  const baseNoTrailingSlash = base.endsWith('/') ? base.slice(0, -1) : base;
+  return `${window.location.origin}${baseNoTrailingSlash}/data`;
 }
 
 function getBaseUrl(): string {
   const env = (import.meta as any).env?.VITE_DATA_BASE_URL as string | undefined;
-  const base = (env ?? localStorage.getItem(LS_KEY_BASE) ?? defaultBaseUrl()).trim();
+
+  // Prefer env, then user-stored localStorage, then default.
+  // NOTE: We validate localStorage value because older builds stored a wrong URL like
+  // ".../ibumaku-pwa.github.io/data" and that survives upgrades.
+  const stored = localStorage.getItem(LS_KEY_BASE);
+  let base = (env ?? stored ?? defaultBaseUrl()).trim();
+
+  if (!env && stored) {
+    // Known-bad patterns from older builds / wrong deploy paths
+    const badPatterns = [
+      '/ibumaku-pwa.github.io/', // repo name confusion
+      '/ibumaku-pwa.github.io/data',
+    ];
+    if (badPatterns.some((p) => base.includes(p))) {
+      localStorage.removeItem(LS_KEY_BASE);
+      base = defaultBaseUrl().trim();
+    }
+  }
+
   // strip trailing slash
   return base.endsWith('/') ? base.slice(0, -1) : base;
 }
@@ -47,17 +69,13 @@ function withCacheBuster(url: string, version: string): string {
 
 async function fetchJsonNoStore<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) {
-    throw new Error(`version.json取得に失敗しました: ${res.status} ${res.statusText}\nURL: ${url}`);
-  }
+  if (!res.ok) throw new Error(`データ取得に失敗しました: ${res.status} ${res.statusText}`);
   return (await res.json()) as T;
 }
 
 async function fetchTextNoStore(url: string): Promise<string> {
   const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) {
-    throw new Error(`CSV取得に失敗しました: ${res.status} ${res.statusText}\nURL: ${url}`);
-  }
+  if (!res.ok) throw new Error(`CSV取得に失敗しました: ${res.status} ${res.statusText}`);
   return await res.text();
 }
 

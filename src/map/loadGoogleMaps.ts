@@ -1,3 +1,8 @@
+// Google Maps auth failure hook (shows on screen)
+(window as any).gm_authFailure = () => {
+  alert('Google Maps 認証失敗 (gm_authFailure) : APIキー制限/請求/ドメイン許可を確認');
+};
+
 import { Loader } from '@googlemaps/js-api-loader';
 
 let _promise: Promise<typeof google> | null = null;
@@ -15,6 +20,11 @@ export function loadGoogleMaps(): Promise<typeof google> {
     libraries: ['marker'],
     language: 'ja',
   });
-  _promise = loader.load();
+  
+_promise = loader.load().catch((e) => {
+  alert('Google Maps loader.load() 失敗: ' + (e?.message ?? String(e)));
+  throw e;
+});
+  
   return _promise;
 }

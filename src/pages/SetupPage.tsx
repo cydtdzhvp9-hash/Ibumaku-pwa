@@ -25,13 +25,13 @@ function findNearestSpotName(lat: number, lng: number, spots: Spot[]): string | 
   let best: Spot | null = null;
   let bestD = Number.POSITIVE_INFINITY;
   for (const s of spots) {
-    const d = haversineM(lat, lng, s.lat, s.lng);
+    const d = haversineM(lat, lng, s.Latitude, s.Longitude);
     if (d < bestD) {
       bestD = d;
       best = s;
     }
   }
-  return best?.name ?? null;
+  return best?.Name ?? null;
 }
 
 function formatDuration(min: number) {
@@ -67,6 +67,25 @@ export default function SetupPage() {
 
   const [judgeSpots, setJudgeSpots] = useState<Spot[]>([]);
   const [syncing, setSyncing] = useState(false);
+
+  const cityLabels: string[] = [];
+  if (config.cityFilter?.ibusuki) cityLabels.push('指宿市');
+  if (config.cityFilter?.minamikyushu) cityLabels.push('南九州市');
+  if (config.cityFilter?.makurazaki) cityLabels.push('枕崎市');
+  const cpRegionLabel = cityLabels.length ? cityLabels.join('、') : '指定なし';
+
+  const startLabel = (() => {
+    if (!config.start) return '現在地';
+    const nm = judgeSpots.length ? findNearestSpotName(config.start.lat, config.start.lng, judgeSpots) : null;
+    return nm ? `${nm}付近` : '地図指定';
+  })();
+
+  const goalLabel = (() => {
+    if (!config.goal) return '現在地';
+    const nm = judgeSpots.length ? findNearestSpotName(config.goal.lat, config.goal.lng, judgeSpots) : null;
+    return nm ? `${nm}付近` : '地図指定';
+  })();
+
 
   useEffect(() => {
     (async () => {
@@ -121,25 +140,7 @@ export default function SetupPage() {
       }
     })();
 
-    const cityLabels: string[] = [];
-  if (config.cityFilter?.ibusuki) cityLabels.push('指宿市');
-  if (config.cityFilter?.minamikyushu) cityLabels.push('南九州市');
-  if (config.cityFilter?.makurazaki) cityLabels.push('枕崎市');
-  const cpRegionLabel = cityLabels.length ? cityLabels.join('、') : '指定なし';
-
-  const startLabel = (() => {
-    if (!config.start) return '現在地';
-    const nm = judgeSpots.length ? findNearestSpotName(config.start.lat, config.start.lng, judgeSpots) : null;
-    return nm ? `${nm}付近` : '地図指定';
-  })();
-
-  const goalLabel = (() => {
-    if (!config.goal) return '現在地';
-    const nm = judgeSpots.length ? findNearestSpotName(config.goal.lat, config.goal.lng, judgeSpots) : null;
-    return nm ? `${nm}付近` : '地図指定';
-  })();
-
-  return () => {
+    return () => {
       if (clickListenerRef.current) {
         try {
           clickListenerRef.current.remove();

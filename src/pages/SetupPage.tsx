@@ -7,7 +7,7 @@ import { useToast } from '../hooks/useToast';
 import { useOnline } from '../hooks/useOnline';
 import { getCurrentFix } from '../logic/location';
 import { resolveStartGoal, useGameStore } from '../store/gameStore';
-import { selectCpSpotsMVP, startNewGame } from '../logic/game';
+import { filterCpPoolByCity, selectCpSpotsMVP, startNewGame } from '../logic/game';
 import { syncMasterDataIfNeeded } from '../logic/dataSync';
 
 const durationOptions = Array.from({ length: 48 }, (_, i) => (i + 1) * 15); // 15..720
@@ -22,6 +22,7 @@ export default function SetupPage() {
     durationMin: 180,
     jrEnabled: false,
     cpCount: 0,
+    cityFilter: { ibusuki: true, minamikyushu: true, makurazaki: true },
     start: undefined,
     goal: undefined,
   });
@@ -216,7 +217,12 @@ export default function SetupPage() {
       const resolved = resolveStartGoal(config, current);
 
       // CP selection (MVP)
-      const cpIds = selectCpSpotsMVP(spotsForCp, resolved);
+      const cpPool = filterCpPoolByCity(spotsForCp, resolved);
+      if (resolved.cpCount > 0 && cpPool.length === 0) {
+        show('選択した地域にCP候補スポットがありません（住所に市名が含まれないスポットは除外されます）。地域選択またはスポットデータを確認してください。', 6000);
+        return;
+      }
+      const cpIds = selectCpSpotsMVP(cpPool, resolved);
       const progress = startNewGame(resolved, cpIds);
       await saveGame(progress);
       setProgress(progress);
@@ -260,6 +266,63 @@ export default function SetupPage() {
               ))}
             </select>
             <div className="hint">CP=1〜2は「なるべくスタート〜ゴール間」。CP≥3は完全ランダム。</div>
+          </div>
+          <div className="col">
+            <label className="hint">CP地域（チェックした地域から選定）</label>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={config.cityFilter?.ibusuki ?? true}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      cityFilter: {
+                        ibusuki: e.target.checked,
+                        minamikyushu: c.cityFilter?.minamikyushu ?? true,
+                        makurazaki: c.cityFilter?.makurazaki ?? true,
+                      },
+                    }))
+                  }
+                />
+                指宿市
+              </label>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={config.cityFilter?.minamikyushu ?? true}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      cityFilter: {
+                        ibusuki: c.cityFilter?.ibusuki ?? true,
+                        minamikyushu: e.target.checked,
+                        makurazaki: c.cityFilter?.makurazaki ?? true,
+                      },
+                    }))
+                  }
+                />
+                南九州市
+              </label>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={config.cityFilter?.makurazaki ?? true}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      cityFilter: {
+                        ibusuki: c.cityFilter?.ibusuki ?? true,
+                        minamikyushu: c.cityFilter?.minamikyushu ?? true,
+                        makurazaki: e.target.checked,
+                      },
+                    }))
+                  }
+                />
+                枕崎市
+              </label>
+            </div>
+            <div className="hint">※スポット住所に市名が含まれない場合は除外されます</div>
           </div>
           <div className="col">
             <label className="hint">JR使用</label>

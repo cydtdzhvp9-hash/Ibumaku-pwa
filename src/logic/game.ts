@@ -4,6 +4,8 @@ import { floorMinutesFromMs } from '../utils/time';
 import { detourRatioMVP } from '../utils/graph';
 
 export const CHECKIN_RADIUS_M = 50;
+// When multiple spots are clustered very tightly, allow check-in for those spots as a group.
+export const DENSE_SPOT_DISTANCE_M = 3;
 export const MAX_ACCURACY_M = 100;
 export const JR_COOLDOWN_SEC = 60;
 
@@ -37,6 +39,85 @@ export function pickCandidateSpotWithinRadius(spots: Spot[], loc: LatLng): { spo
   });
   const top = candidates[0];
   return { spot: top.s, dist: top.d };
+}
+
+type SpotCandidate = { spot: Spot; dist: number };
+
+function listSpotCandidatesWithinRadius(spots: Spot[], loc: LatLng): SpotCandidate[] {
+  return spots.map(s => {
+    const d = haversineMeters(loc, { lat: s.Latitude, lng: s.Longitude });
+    return { spot: s, dist: d };
+  }).filter(x => x.dist <= CHECKIN_RADIUS_M);
+}
+
+/**
+ * "密集スポット" 対応:
+ * - 50m以内の候補から最も近いスポットAを基準に、スポット間距離3m以内の連結成分（クラスター）を作る。
+ * - クラスターサイズ>1の場合は、クラスター内の未訪問スポットもチェックイン対象とする。
+ * - それ以外は従来通り「最も近いスポットのみ」。
+ */
+function pickSpotCandidateWithDenseCluster(
+  progress: GameProgress,
+  loc: LatLng,
+  judgeSpots: Spot[],
+  denseThresholdM = 3
+): SpotCandidate | null {
+  const candidates = listSpotCandidatesWithinRadius(judgeSpots, loc);
+  if (!candidates.length) return null;
+
+  // Nearest candidate A (same rule as pickCandidateSpotWithinRadius)
+  candidates.sort((a,b)=>{
+    if (a.dist !== b.dist) return a.dist - b.dist;
+    if (a.spot.Score !== b.spot.Score) return b.spot.Score - a.spot.Score;
+    return a.spot.ID.localeCompare(b.spot.ID);
+  });
+
+  const base = candidates[0];
+  // Build cluster (connected component) within 3m based on spot-to-spot distance.
+  const byId = new Map(candidates.map(c => [c.spot.ID, c] as const));
+  const visitedCluster = new Set<string>();
+  const queue: string[] = [base.spot.ID];
+  visitedCluster.add(base.spot.ID);
+
+  // Precompute coordinates for speed
+  const coords = new Map<string, LatLng>();
+  for (const c of candidates) {
+    coords.set(c.spot.ID, { lat: c.spot.Latitude, lng: c.spot.Longitude });
+  }
+
+  while (queue.length) {
+    const cur = queue.shift()!;
+    const curLoc = coords.get(cur);
+    if (!curLoc) continue;
+    for (const other of candidates) {
+      const oid = other.spot.ID;
+      if (visitedCluster.has(oid)) continue;
+      const oLoc = coords.get(oid);
+      if (!oLoc) continue;
+      if (haversineMeters(curLoc, oLoc) <= denseThresholdM) {
+        visitedCluster.add(oid);
+        queue.push(oid);
+      }
+    }
+  }
+
+  // If cluster is not dense (size 1), behave as before.
+  if (visitedCluster.size <= 1) return base;
+
+  const visitedSpotIds = new Set(progress.visitedSpotIds);
+
+  // Prefer unvisited spots within the cluster, closest to current location.
+  const clusterCandidates = candidates.filter(c => visitedCluster.has(c.spot.ID));
+  const unvisited = clusterCandidates.filter(c => !visitedSpotIds.has(c.spot.ID));
+  const pool = unvisited.length ? unvisited : clusterCandidates;
+
+  pool.sort((a,b)=>{
+    // Here we prioritize proximity to the current location for better UX.
+    if (a.dist !== b.dist) return a.dist - b.dist;
+    if (a.spot.Score !== b.spot.Score) return b.spot.Score - a.spot.Score;
+    return a.spot.ID.localeCompare(b.spot.ID);
+  });
+  return pool[0] ?? base;
 }
 
 export function startNewGame(resolvedConfig: GameConfig & { start: LatLng; goal: LatLng }, cpSpotIds: string[]): GameProgress {
@@ -107,7 +188,8 @@ export function checkInSpotOrCp(progress: GameProgress, loc: LatLng, accuracy: n
   if (progress.endedAtMs) return { ok:false, code:'GAME_ENDED', message:'ゲームは終了しています。' };
   if (accuracy > MAX_ACCURACY_M) return { ok:false, code:'ACCURACY_TOO_BAD', message:`accuracyが大きすぎます（${Math.round(accuracy)}m）。100m以内になるまで待ってください。` };
 
-  const cand = pickCandidateSpotWithinRadius(judgeSpots, loc);
+  // Dense-spot rule: allow check-in for spots clustered within 3m (inside 50m).
+  const cand = pickSpotCandidateWithDenseCluster(progress, loc, judgeSpots, DENSE_SPOT_DISTANCE_M);
   if (!cand) return { ok:false, code:'NO_SPOT', message:`50m以内にスポットが見つかりません。` };
 
   const spot = cand.spot;

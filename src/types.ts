@@ -40,6 +40,7 @@ export type GameConfig = {
   cpCount: number; // 0..5
   start?: LatLng; // if undefined, uses current location at start
   goal?: LatLng;  // if undefined, uses current location at start
+  cityFilter?: { ibusuki: boolean; minamikyushu: boolean; makurazaki: boolean };
 };
 
 export type GameProgress = {

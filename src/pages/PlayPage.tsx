@@ -990,11 +990,6 @@ const applyProgressUpdate = (p: any, msg: string, logType?: string, logData?: an
     if (!online) return pushNotice('error', 'オフライン/圏外のためチェックインできません。オンラインで再試行してください。', 4000);
     if (!progress) return;
     if (progress.endedAtMs) return pushNotice('error', 'ゲームは終了しています。', 4000);
-    if (progress.boardedStationId) {
-      pushLog('CHECKIN_BLOCKED', '乗車中は駅チェックインのみ可能です。降車後に再試行してください。', { boardedStationId: progress.boardedStationId });
-      pushNotice('error', '乗車中は駅チェックインのみ可能です。降車後に再試行してください。', 4000);
-      return;
-    }
     if (graceEndMs && Date.now() > graceEndMs) {
       await abandonGameNow();
       return;

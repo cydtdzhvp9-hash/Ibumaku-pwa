@@ -40,6 +40,70 @@ function formatDuration(min: number) {
   return `${min}分`;
 }
 
+function ConfirmModal(props: {
+  open: boolean;
+  title?: string;
+  children: React.ReactNode;
+  primaryLabel: string;
+  primaryDisabled?: boolean;
+  onPrimary: () => void | Promise<void>;
+  secondaryLabel: string;
+  onSecondary: () => void;
+}) {
+  if (!props.open) return null;
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={props.title ?? '確認'}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+        zIndex: 9999,
+      }}
+      // 背景のクリック/操作を遮断する（閉じる操作はボタンのみ）
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+      }}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+      }}
+    >
+      <div
+        className="card"
+        style={{
+          width: 'min(520px, 100%)',
+          maxHeight: 'min(80vh, 640px)',
+          overflow: 'auto',
+        }}
+      >
+        <h3>{props.title ?? '確認'}</h3>
+        {props.children}
+        <div style={{ height: 10 }} />
+        <div className="actions">
+          <button
+            className="btn primary"
+            onClick={props.onPrimary}
+            disabled={props.primaryDisabled}
+          >
+            {props.primaryLabel}
+          </button>
+          <button className="btn" onClick={props.onSecondary}>
+            {props.secondaryLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const durationOptions = Array.from({ length: 48 }, (_, i) => (i + 1) * 15); // 15..720
 
 export default function SetupPage() {
@@ -288,153 +352,121 @@ export default function SetupPage() {
       <div className="card">
         <h3>開始設定</h3>
         {!online && <div className="banner">オフライン/圏外のため開始できません。オンラインにしてください。</div>}
-        <div className="row">
-          <div className="col">
-            <label className="hint">制限時間（15分刻み）</label>
-            <select
-              className="input"
-              value={config.durationMin}
-              onChange={(e) => setConfig((c) => ({ ...c, durationMin: Number(e.target.value) }))}
-            >
-              {durationOptions.map((m) => (
-                <option key={m} value={m}>
-                  {m}分
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="col">
-            <label className="hint">CP数（0〜5）</label>
-            <select
-              className="input"
-              value={config.cpCount}
-              onChange={(e) => setConfig((c) => ({ ...c, cpCount: Number(e.target.value) }))}
-            >
-              {[0, 1, 2, 3, 4, 5].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-            <div className="hint">CP=1〜2は「なるべくスタート〜ゴール間」。CP≥3は完全ランダム。</div>
-          </div>
-          <div className="col">
-            <label className="hint">CP地域（チェックした地域から選定）</label>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
-              <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <input
-                  type="checkbox"
-                  checked={config.cityFilter?.ibusuki ?? true}
-                  onChange={(e) =>
-                    setConfig((c) => ({
-                      ...c,
-                      cityFilter: {
-                        ibusuki: e.target.checked,
-                        minamikyushu: c.cityFilter?.minamikyushu ?? true,
-                        makurazaki: c.cityFilter?.makurazaki ?? true,
-                      },
-                    }))
-                  }
-                />
-                指宿市
-              </label>
-              <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <input
-                  type="checkbox"
-                  checked={config.cityFilter?.minamikyushu ?? true}
-                  onChange={(e) =>
-                    setConfig((c) => ({
-                      ...c,
-                      cityFilter: {
-                        ibusuki: c.cityFilter?.ibusuki ?? true,
-                        minamikyushu: e.target.checked,
-                        makurazaki: c.cityFilter?.makurazaki ?? true,
-                      },
-                    }))
-                  }
-                />
-                南九州市
-              </label>
-              <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <input
-                  type="checkbox"
-                  checked={config.cityFilter?.makurazaki ?? true}
-                  onChange={(e) =>
-                    setConfig((c) => ({
-                      ...c,
-                      cityFilter: {
-                        ibusuki: c.cityFilter?.ibusuki ?? true,
-                        minamikyushu: c.cityFilter?.minamikyushu ?? true,
-                        makurazaki: e.target.checked,
-                      },
-                    }))
-                  }
-                />
-                枕崎市
-              </label>
-            
-        {isConfirming && (
-          <>
-            <div style={{ height: 12 }} />
-            <div className="card">
-              <h3>設定内容の確認</h3>
-              <div className="row" style={{ flexDirection: 'column', gap: 6 }}>
-                <div>制限時間：{formatDuration(config.durationMin)}</div>
-                <div>CP数：{config.cpCount}</div>
-                <div>CP地域：{cpRegionLabel}</div>
-                <div>JR使用：{config.jrEnabled ? 'ON' : 'OFF'}</div>
-                <div>スタート：{startLabel}</div>
-                <div>ゴール：{goalLabel}</div>
-              </div>
-              <div style={{ height: 10 }} />
-              <div className="actions">
-                <button
-                  className="btn primary"
-                  onClick={async () => {
-                    setIsConfirming(false);
-                    await onStartGame();
-                  }}
-                  disabled={!canStart}
-                >
-                  開始
-                </button>
-                <button className="btn" onClick={() => setIsConfirming(false)}>
-                  修正
-                </button>
-              </div>
+        <fieldset disabled={isConfirming || syncing} style={{ border: 'none', padding: 0, margin: 0 }}>
+          <div className="row">
+            <div className="col">
+              <label className="hint">制限時間（15分刻み）</label>
+              <select
+                className="input"
+                value={config.durationMin}
+                onChange={(e) => setConfig((c) => ({ ...c, durationMin: Number(e.target.value) }))}
+              >
+                {durationOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {m}分
+                  </option>
+                ))}
+              </select>
             </div>
-          </>
-        )}
-
-        </div>
-            <div className="hint">※スポット住所に市名が含まれない場合は除外されます</div>
+            <div className="col">
+              <label className="hint">CP数（0〜5）</label>
+              <select
+                className="input"
+                value={config.cpCount}
+                onChange={(e) => setConfig((c) => ({ ...c, cpCount: Number(e.target.value) }))}
+              >
+                {[0, 1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              <div className="hint">CP=1〜2は「なるべくスタート〜ゴール間」。CP≥3は完全ランダム。</div>
+            </div>
+            <div className="col">
+              <label className="hint">CP地域（チェックした地域から選定）</label>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={config.cityFilter?.ibusuki ?? true}
+                    onChange={(e) =>
+                      setConfig((c) => ({
+                        ...c,
+                        cityFilter: {
+                          ibusuki: e.target.checked,
+                          minamikyushu: c.cityFilter?.minamikyushu ?? true,
+                          makurazaki: c.cityFilter?.makurazaki ?? true,
+                        },
+                      }))
+                    }
+                  />
+                  指宿市
+                </label>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={config.cityFilter?.minamikyushu ?? true}
+                    onChange={(e) =>
+                      setConfig((c) => ({
+                        ...c,
+                        cityFilter: {
+                          ibusuki: c.cityFilter?.ibusuki ?? true,
+                          minamikyushu: e.target.checked,
+                          makurazaki: c.cityFilter?.makurazaki ?? true,
+                        },
+                      }))
+                    }
+                  />
+                  南九州市
+                </label>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={config.cityFilter?.makurazaki ?? true}
+                    onChange={(e) =>
+                      setConfig((c) => ({
+                        ...c,
+                        cityFilter: {
+                          ibusuki: c.cityFilter?.ibusuki ?? true,
+                          minamikyushu: c.cityFilter?.minamikyushu ?? true,
+                          makurazaki: e.target.checked,
+                        },
+                      }))
+                    }
+                  />
+                  枕崎市
+                </label>
+              </div>
+              <div className="hint">※スポット住所に市名が含まれない場合は除外されます</div>
+            </div>
+            <div className="col">
+              <label className="hint">JR使用</label>
+              <select
+                className="input"
+                value={config.jrEnabled ? 'on' : 'off'}
+                onChange={(e) => setConfig((c) => ({ ...c, jrEnabled: e.target.value === 'on' }))}
+              >
+                <option value="off">OFF</option>
+                <option value="on">ON</option>
+              </select>
+              <div className="hint">JR=ONのとき、駅チェックインが有効になります。</div>
+            </div>
           </div>
-          <div className="col">
-            <label className="hint">JR使用</label>
-            <select
-              className="input"
-              value={config.jrEnabled ? 'on' : 'off'}
-              onChange={(e) => setConfig((c) => ({ ...c, jrEnabled: e.target.value === 'on' }))}
-            >
-              <option value="off">OFF</option>
-              <option value="on">ON</option>
-            </select>
-            <div className="hint">JR=ONのとき、駅チェックインが有効になります。</div>
-          </div>
-        </div>
 
-        <div style={{ height: 10 }} />
-        <div className="actions">
-          <button className="btn" onClick={onUseCurrentForStartGoal} disabled={syncing}>
-            現在地をスタート/ゴールにする
-          </button>
-          <button className="btn primary" onClick={() => setIsConfirming(true)} disabled={!canStart}>
-            {syncing ? 'データ確認中...' : '開始'}
-          </button>
-        </div>
-        <div className="hint" style={{ marginTop: 10 }}>
-          ・地図をタップして START / GOAL を設定（未指定なら開始時に現在地が採用されます）
-        </div>
+          <div style={{ height: 10 }} />
+          <div className="actions">
+            <button className="btn" onClick={onUseCurrentForStartGoal}>
+              現在地をスタート/ゴールにする
+            </button>
+            <button className="btn primary" onClick={() => setIsConfirming(true)} disabled={!canStart}>
+              {syncing ? 'データ確認中...' : '設定確認'}
+            </button>
+          </div>
+          <div className="hint" style={{ marginTop: 10 }}>
+            ・地図をタップして START / GOAL を設定（未指定なら開始時に現在地が採用されます）
+          </div>
+        </fieldset>
       </div>
 
       <div style={{ height: 12 }} />
@@ -442,6 +474,31 @@ export default function SetupPage() {
         <h3>スタート/ゴール指定（地図）</h3>
         <div className="mapWrap" ref={mapEl} />
       </div>
+
+      <ConfirmModal
+        open={isConfirming}
+        title="設定内容の確認"
+        primaryLabel="ゲーム開始"
+        primaryDisabled={!canStart}
+        onPrimary={async () => {
+          setIsConfirming(false);
+          await onStartGame();
+        }}
+        secondaryLabel="戻る（修正）"
+        onSecondary={() => setIsConfirming(false)}
+      >
+        <div className="row" style={{ flexDirection: 'column', gap: 6 }}>
+          <div>制限時間：{formatDuration(config.durationMin)}</div>
+          <div>CP数：{config.cpCount}</div>
+          <div>CP地域：{cpRegionLabel}</div>
+          <div>JR使用：{config.jrEnabled ? 'ON' : 'OFF'}</div>
+          <div>スタート：{startLabel}</div>
+          <div>ゴール：{goalLabel}</div>
+        </div>
+        <div className="hint" style={{ marginTop: 10 }}>
+          ※確認中は設定を変更できません。修正する場合は「戻る（修正）」を選択してください。
+        </div>
+      </ConfirmModal>
       {Toast}
     </>
   );

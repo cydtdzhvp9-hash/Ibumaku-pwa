@@ -1,9 +1,16 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getAllSpots, getStationsByOrder, loadGame } from '../db/repo';
 import { calcPenalty } from '../logic/game';
+import { buildKpiPayloadV1, sendKpiPayload } from '../logic/kpi';
 import { useGameStore } from '../store/gameStore';
 import type { Spot, Station } from '../types';
+
+type KpiDecision = 'undecided' | 'sent' | 'skip';
+
+function getKpiDecisionKey(startedAtMs: number): string {
+  return `ibumaku:kpi:decision:v1:${startedAtMs}`;
+}
 
 export default function ResultPage() {
   const nav = useNavigate();
@@ -12,6 +19,13 @@ export default function ResultPage() {
   const [loaded, setLoaded] = useState(false);
   const [spots, setSpots] = useState<Spot[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
+  const [kpiConsent, setKpiConsent] = useState(true);
+  const [kpiDecision, setKpiDecision] = useState<KpiDecision>('undecided');
+  const [kpiSending, setKpiSending] = useState(false);
+
+  const kpiUiEnabled = useMemo(() => {
+    return (import.meta.env.VITE_KPI_ENABLED === '1') && !!import.meta.env.VITE_KPI_ENDPOINT_URL;
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -29,6 +43,66 @@ export default function ResultPage() {
       setLoaded(true);
     })();
   }, [nav, progress, setProgress]);
+
+  // Load decision for this game (once progress is ready)
+  useEffect(() => {
+    if (!kpiUiEnabled) return;
+    if (!progress) return;
+    const key = getKpiDecisionKey(progress.startedAtMs);
+    const v = (localStorage.getItem(key) ?? '').trim();
+    if (v === 'sent' || v === 'skip') {
+      setKpiDecision(v);
+      if (v === 'skip') setKpiConsent(false);
+    } else {
+      setKpiDecision('undecided');
+      setKpiConsent(true);
+    }
+  }, [kpiUiEnabled, progress]);
+
+  const finalizeDecision = useCallback((decision: Exclude<KpiDecision, 'undecided'>) => {
+    if (!progress) return;
+    const key = getKpiDecisionKey(progress.startedAtMs);
+    localStorage.setItem(key, decision);
+    setKpiDecision(decision);
+  }, [progress]);
+
+  const trySendKpiOnce = useCallback(async () => {
+    if (!kpiUiEnabled) return;
+    if (!progress) return;
+    if (kpiDecision !== 'undecided') return;
+    if (!kpiConsent) {
+      finalizeDecision('skip');
+      return;
+    }
+
+    // best-effort send: no noisy UI on failure
+    if (!navigator.onLine) return;
+    if (kpiSending) return;
+
+    try {
+      setKpiSending(true);
+      const payload = buildKpiPayloadV1(progress, spots, true /* shareOk: ON */);
+      await sendKpiPayload(payload);
+      finalizeDecision('sent');
+    } catch {
+      // swallow (no-cors / network). Do NOT finalize, so user can retry next time.
+    } finally {
+      setKpiSending(false);
+    }
+  }, [finalizeDecision, kpiConsent, kpiDecision, kpiSending, kpiUiEnabled, progress, spots]);
+
+  const leaveTo = useCallback(async (to: string) => {
+    await trySendKpiOnce();
+    nav(to);
+  }, [nav, trySendKpiOnce]);
+
+  // Allow App header to request guarded navigation while on /result
+  useEffect(() => {
+    (window as any).__ibumaku_leave_result = leaveTo;
+    return () => {
+      try { delete (window as any).__ibumaku_leave_result; } catch { /* ignore */ }
+    };
+  }, [leaveTo]);
 
   if (!loaded || !progress) return <div className="card">読込中...</div>;
 
@@ -148,6 +222,23 @@ export default function ResultPage() {
         </div>
       )}
 
+      {kpiUiEnabled && kpiDecision === 'undecided' && (
+        <div className="hint" style={{ marginTop: 10 }}>
+          <div>
+            画面を移動する際、チェックがONならリザルトを送信します（個人が特定される情報は送信しません）。
+          </div>
+          <label style={{ display: 'block', marginTop: 6 }}>
+            <input
+              type="checkbox"
+              checked={kpiConsent}
+              onChange={(e) => setKpiConsent(e.target.checked)}
+              disabled={kpiSending}
+            />{' '}
+            同意する
+          </label>
+        </div>
+      )}
+
 
       <hr />
 
@@ -161,10 +252,10 @@ export default function ResultPage() {
       ) : (
         <div className="hint">このゲームで解除された実績はありません。</div>
       )}
-      <hr />
+
       <div className="actions">
-        <Link className="btn" to="/">ホーム</Link>
-        <Link className="btn primary" to="/setup">新規（設定へ）</Link>
+        <button className="btn" onClick={() => void leaveTo('/')}>ホーム</button>
+        <button className="btn primary" onClick={() => void leaveTo('/setup')}>新規（設定へ）</button>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans JP', sans-serif; }
-body { margin: 0; background: #f6f7f9; color: #111; }
+/* App background: fresh tea-bud green */
+body { margin: 0; background: #e3f3dc; color: #111; }
 a { color: inherit; }
 .container { max-width: 980px; margin: 0 auto; padding: 16px; }
 .card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
@@ -19,6 +20,14 @@ a { color: inherit; }
 .actions { display:flex; gap:10px; flex-wrap: wrap; }
 hr { border: none; border-top: 1px solid #eee; margin: 12px 0; }
 small.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+/* ===== Docs (Terms / Safety / Privacy / Support) ===== */
+.docBody { overflow-wrap: anywhere; word-break: break-word; }
+.docHeading2 { margin-top: 6px; font-size: 15px; }
+.docHeading3 { margin-top: 6px; font-size: 14px; }
+.docPara { font-size: 14px; }
+.docList { margin: 6px 0 0 18px; padding: 0; }
+.docMeta { font-size: 12px; color: #555; }
 /* ===== Map markers (AdvancedMarkerElement content) ===== */
 .spotBadge {
   box-sizing: border-box;

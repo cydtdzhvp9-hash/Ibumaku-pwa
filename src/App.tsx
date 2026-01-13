@@ -36,10 +36,10 @@ export default function App() {
   const loc = useLocation();
   const showDebugImport = (import.meta as any)?.env?.VITE_DEBUG_TOOLS === '1';
 
-  const go = useCallback(async (to: string) => {
+  const go = useCallback((to: string) => {
     // When leaving Result page, allow it to do best-effort KPI submit once.
     if (loc.pathname === '/result' && typeof (window as any).__ibumaku_leave_result === 'function') {
-      await (window as any).__ibumaku_leave_result(to);
+      (window as any).__ibumaku_leave_result(to);
       return;
     }
     nav(to);

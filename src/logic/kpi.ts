@@ -99,11 +99,26 @@ export async function sendKpiPayload(payload: KpiPayloadV1): Promise<void> {
     body.set('token', token.trim());
   }
 
-  // `no-cors` means we cannot read the response body/status;
-  // if the request is successfully queued, fetch resolves.
+  // Fastest path: sendBeacon (fire-and-forget). If unavailable or rejected, fallback to fetch.
+  // NOTE: In `no-cors`, we cannot read status/body; fetch resolves if the request was queued.
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      const blob = new Blob([body.toString()], {
+        type: 'application/x-www-form-urlencoded;charset=UTF-8',
+      });
+      const ok = navigator.sendBeacon(endpoint, blob);
+      if (ok) return;
+      // If sendBeacon returns false, continue to fetch fallback.
+    }
+  } catch {
+    // ignore and fallback to fetch
+  }
+
   await fetch(endpoint, {
     method: 'POST',
     mode: 'no-cors',
+    // keepalive helps when leaving the page (supported browsers only)
+    keepalive: true,
     headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body,
   });

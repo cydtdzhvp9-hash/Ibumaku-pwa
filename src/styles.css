@@ -3,10 +3,39 @@
 body { margin: 0; background: #e3f3dc; color: #111; }
 a { color: inherit; }
 .container { max-width: 980px; margin: 0 auto; padding: 16px; }
+
+/* ===== Top header / icon navigation ===== */
+.topHeader { display: flex; flex-direction: column; gap: 10px; }
+.topTitle { margin: 0; font-size: 18px; }
+.topNavIcons {
+  display: flex;
+  flex-wrap: nowrap; /* keep to one row */
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: clamp(4px, 1vw, 10px);
+  width: 100%;
+  overflow-x: auto; /* if the device is very narrow */
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+.navIconBtn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.navIconBtn img {
+  display: block;
+  width: clamp(44px, 13vw, 62px);
+  height: auto;
+}
+.navIconBtn:focus-visible { outline: 2px solid #111; border-radius: 14px; }
 .card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
 .col { flex: 1 1 280px; }
 .btn { padding: 10px 12px; border-radius: 10px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+.btnTiny { padding: 6px 8px; border-radius: 10px; font-size: 12px; }
 .btn.primary { background: #111; color: #fff; border-color: #111; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .input, select { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #ccc; background: #fff; }

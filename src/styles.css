@@ -139,3 +139,29 @@ small.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
 }
 .currentLocBtn:active { transform: translateX(-50%) scale(0.98); }
 .currentLocBtn:disabled { opacity: .5; }
+/* Background watermark (Ochamurai) */
+body {
+  position: relative;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: min(46vw, 360px);
+  height: min(46vw, 360px);
+  background-image: url('/bg/ochamurai.png');
+  background-repeat: no-repeat;
+  background-position: right bottom;
+  background-size: contain;
+  pointer-events: none;
+  opacity: 0.22;
+  z-index: 0;
+}
+
+/* Ensure main UI stays above the watermark */
+.container, .topHeader, .topHeaderTitle, .navIconRow {
+  position: relative;
+  z-index: 1;
+}

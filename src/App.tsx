@@ -31,34 +31,48 @@ function ConsentGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+const icon = (file: string) => `${import.meta.env.BASE_URL}navicons/${file}`;
+
 export default function App() {
   const nav = useNavigate();
   const loc = useLocation();
   const showDebugImport = (import.meta as any)?.env?.VITE_DEBUG_TOOLS === '1';
 
-  const go = useCallback((to: string) => {
+  const go = useCallback(async (to: string) => {
     // When leaving Result page, allow it to do best-effort KPI submit once.
     if (loc.pathname === '/result' && typeof (window as any).__ibumaku_leave_result === 'function') {
-      (window as any).__ibumaku_leave_result(to);
+      await (window as any).__ibumaku_leave_result(to);
       return;
     }
     nav(to);
   }, [loc.pathname, nav]);
   return (
     <div className="container">
-      <header className="row" style={{alignItems:'center', justifyContent:'space-between'}}>
-        <div style={{display:'flex', gap:12, alignItems:'center'}}>
-          <h2 style={{margin:0}}>指宿枕崎線 サイクルロゲイニング（MVP）</h2>
-        </div>
-        <nav style={{display:'flex', gap:10, flexWrap:'wrap'}}>
-          <button type="button" className="btn" onClick={() => void go('/')}>ホーム</button>
-          <button type="button" className="btn" onClick={() => void go('/terms')}>規約</button>
-          <button type="button" className="btn" onClick={() => void go('/notice-safety')}>安全</button>
-          <button type="button" className="btn" onClick={() => void go('/privacy')}>プラポリ</button>
-          <button type="button" className="btn" onClick={() => void go('/support')}>サポート</button>
-          <button type="button" className="btn" onClick={() => void go('/rules')}>ルール</button>
+      <header className="topHeader">
+        <h2 className="topTitle">指宿枕崎線 サイクルロゲイニング（MVP）</h2>
+
+        <nav className="topNavIcons" aria-label="メニュー">
+          <button type="button" className="navIconBtn" onClick={() => void go('/')} aria-label="ホーム">
+            <img src={icon('home.png')} alt="ホーム" />
+          </button>
+          <button type="button" className="navIconBtn" onClick={() => void go('/terms')} aria-label="利用規約">
+            <img src={icon('terms.png')} alt="利用規約" />
+          </button>
+          <button type="button" className="navIconBtn" onClick={() => void go('/notice-safety')} aria-label="安全に関する注意">
+            <img src={icon('safety.png')} alt="安全注意" />
+          </button>
+          <button type="button" className="navIconBtn" onClick={() => void go('/privacy')} aria-label="プライバシーポリシー">
+            <img src={icon('privacy.png')} alt="プライバシー" />
+          </button>
+          <button type="button" className="navIconBtn" onClick={() => void go('/support')} aria-label="サポート・ヘルプ">
+            <img src={icon('support.png')} alt="サポート" />
+          </button>
+          <button type="button" className="navIconBtn" onClick={() => void go('/rules')} aria-label="ゲームルール">
+            <img src={icon('rules.png')} alt="ルール" />
+          </button>
+
           {showDebugImport ? (
-            <button type="button" className="btn" onClick={() => void go('/admin/import')}>CSV</button>
+            <button type="button" className="btn btnTiny" onClick={() => void go('/admin/import')}>CSV</button>
           ) : null}
         </nav>
       </header>

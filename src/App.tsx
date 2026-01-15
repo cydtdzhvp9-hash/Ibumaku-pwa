@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import HomePage from './pages/HomePage';
 import ImportPage from './pages/ImportPage';
@@ -13,6 +13,7 @@ import PrivacyPage from './pages/PrivacyPage';
 import SupportPage from './pages/SupportPage';
 import ExitPage from './pages/ExitPage';
 import { hasSafetyConsent, hasTermsConsent, isConsentBlocked } from './logic/consent';
+import InstallToHomeModal from './components/InstallToHomeModal';
 
 function ConsentGuard({ children }: { children: React.ReactNode }) {
   const loc = useLocation();
@@ -33,10 +34,39 @@ function ConsentGuard({ children }: { children: React.ReactNode }) {
 
 const icon = (file: string) => `${import.meta.env.BASE_URL}navicons/${file}`;
 
+function isStandaloneMode(): boolean {
+  // iOS Safari uses navigator.standalone when launched from Home Screen.
+  const navAny = navigator as any;
+  const iosStandalone = typeof navAny?.standalone === 'boolean' ? navAny.standalone === true : false;
+  const mqlStandalone = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(display-mode: standalone)').matches
+    : false;
+  return iosStandalone || mqlStandalone;
+}
+
+type InstallGuideKind = 'ios' | 'android' | 'other';
+
+function detectInstallGuideKind(): InstallGuideKind {
+  const ua = navigator.userAgent;
+  const isAndroid = /Android/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua) || ((navigator as any).platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
+  if (isIOS) return 'ios';
+  if (isAndroid) return 'android';
+  return 'other';
+}
+
 export default function App() {
   const nav = useNavigate();
   const loc = useLocation();
   const showDebugImport = (import.meta as any)?.env?.VITE_DEBUG_TOOLS === '1';
+
+  // When the app is opened in a normal browser tab (not installed), always show the
+  // "Add to Home Screen" guidance modal first, before the consent flow.
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const installGuideKind = useMemo(() => detectInstallGuideKind(), []);
+  useEffect(() => {
+    if (!isStandaloneMode()) setShowInstallGuide(true);
+  }, []);
 
   const go = useCallback(async (to: string) => {
     // When leaving Result page, allow it to do best-effort KPI submit once.
@@ -48,6 +78,12 @@ export default function App() {
   }, [loc.pathname, nav]);
   return (
     <div className="container">
+      {showInstallGuide ? (
+        <InstallToHomeModal
+          kind={installGuideKind}
+          onClose={() => setShowInstallGuide(false)}
+        />
+      ) : null}
       <header className="topHeader">
         <h2 className="topTitle">指宿枕崎線 サイクルロゲイニング（MVP）</h2>
 

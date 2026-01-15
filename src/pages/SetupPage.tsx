@@ -286,21 +286,47 @@ export default function SetupPage() {
     };
   }, []);
 
-  const onUseCurrentForStartGoal = async () => {
-    try {
-      const fix = await getCurrentFix();
-      setConfig((c) => ({ ...c, start: { lat: fix.lat, lng: fix.lng }, goal: { lat: fix.lat, lng: fix.lng } }));
-      show('現在地をスタート/ゴールに設定しました。');
-      mapRef.current?.setCenter({ lat: fix.lat, lng: fix.lng });
-      mapRef.current?.setZoom(14);
-    } catch (e: any) {
-      show(e?.message ?? '位置情報を取得できません。', 4500);
-    }
-  };
-
   const canStart = online && !syncing;
 
-  const onStartGame = async () => {
+  
+  // 初回: 位置情報が取得できたら現在地に START/GOAL を自動配置（GOALは最大5m以内で少しずらす）
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // すでに指定済みなら何もしない
+      if (config.start && config.goal) return;
+
+      try {
+        const fix = await getCurrentFix();
+        if (cancelled) return;
+
+        const start = config.start ?? { lat: fix.lat, lng: fix.lng };
+
+        // 5m以内で東方向にずらす（掴みやすさのため）
+        const meters = 4; // <= 5m
+        const dLng = meters / (111320 * Math.cos((start.lat * Math.PI) / 180));
+        const goal = config.goal ?? { lat: start.lat, lng: start.lng + dLng };
+
+        setConfig((c) => {
+          // 途中でユーザーが操作した可能性があるため再確認
+          if (c.start && c.goal) return c;
+          return { ...c, start: c.start ?? start, goal: c.goal ?? goal };
+        });
+
+        mapRef.current?.setCenter({ lat: start.lat, lng: start.lng });
+        mapRef.current?.setZoom(14);
+      } catch {
+        // 位置情報が取得できない/許可されない場合は何もしない（既存の挙動に合わせる）
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [config.start, config.goal]);
+
+
+const onStartGame = async () => {
     if (!online) return show('オフライン/圏外では開始できません。オンラインにして再試行してください。', 4500);
 
     // 方式C: ゲーム開始時にマップデータを自動更新（差分があれば全件上書き）
@@ -456,15 +482,12 @@ export default function SetupPage() {
 
           <div style={{ height: 10 }} />
           <div className="actions">
-            <button className="btn" onClick={onUseCurrentForStartGoal}>
-              現在地をスタート/ゴールにする
-            </button>
             <button className="btn primary" onClick={() => setIsConfirming(true)} disabled={!canStart}>
-              {syncing ? 'データ確認中...' : '設定確認'}
+              {syncing ? 'データ確認中...' : '次へ'}
             </button>
           </div>
           <div className="hint" style={{ marginTop: 10 }}>
-            ・地図をタップして START / GOAL を設定（未指定なら開始時に現在地が採用されます）
+            ・開始設定画面で位置情報が取得できたら、現在地に START / GOAL が表示されます（ドラッグで調整できます）
           </div>
         </fieldset>
       </div>

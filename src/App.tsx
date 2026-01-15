@@ -81,7 +81,24 @@ export default function App() {
       {showInstallGuide ? (
         <InstallToHomeModal
           kind={installGuideKind}
-          onClose={() => setShowInstallGuide(false)}
+          onClose={() => {
+            // After closing the install guidance, continue the normal consent flow.
+            // If already consented, go straight to Home.
+            setShowInstallGuide(false);
+            if (isConsentBlocked()) {
+              nav('/exit');
+              return;
+            }
+            if (!hasSafetyConsent()) {
+              nav('/notice-safety');
+              return;
+            }
+            if (!hasTermsConsent()) {
+              nav('/terms');
+              return;
+            }
+            nav('/');
+          }}
         />
       ) : null}
       <header className="topHeader">
@@ -133,3 +150,4 @@ export default function App() {
     </div>
   );
 }
+

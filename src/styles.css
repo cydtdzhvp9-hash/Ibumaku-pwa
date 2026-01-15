@@ -165,3 +165,42 @@ body::after {
   position: relative;
   z-index: 1;
 }
+
+/* ===== Install guide modal (Add to Home Screen) ===== */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 999;
+}
+
+.modalPanel {
+  width: min(640px, 92vw);
+  max-height: 86vh;
+  overflow: auto;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+  border: 1px solid rgba(0,0,0,.12);
+}
+
+.modalContent {
+  padding: 14px 16px;
+}
+
+.modalActions {
+  padding: 0 16px 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.installGuideIntro { font-size: 14px; line-height: 1.55; margin: 0 0 10px; }
+.installGuideSection { margin-top: 8px; }
+.installGuideTitle { font-weight: 900; font-size: 14px; margin: 6px 0; }
+.installGuideList { margin: 6px 0 0 18px; padding: 0; font-size: 14px; line-height: 1.55; }
+.installGuidePara { font-size: 14px; line-height: 1.55; margin: 6px 0 0; }
+.installGuideNote { font-size: 13px; line-height: 1.55; color: #444; margin: 12px 0 0; }
